@@ -28,7 +28,7 @@ class MainActivity : Activity() {
 
         status = TextView(this)
         search = EditText(this)
-        search.hint = "Search bus number, from or to"
+        search.hint = "Search bus number or any place"
         list = ListView(this)
 
         root.addView(status)
@@ -42,7 +42,7 @@ class MainActivity : Activity() {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
 
-        list.setOnItemClickListener { _, _, pos, _ -> showTimings(items[pos]) }
+        list.setOnItemClickListener { _, _, pos, _ -> showTrips(items[pos]) }
 
         refresh()
     }
@@ -58,15 +58,42 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         items = db.searchRoutes(search.text.toString().trim())
-        val labels = items.map { "${it.busNo}   ${it.from} → ${it.to}  (${it.type})" }
+        val labels = items.map { r ->
+            val mid = r.stops.split("|").filter { it.isNotBlank() }.drop(1).dropLast(1)
+            val via = if (mid.isEmpty()) "" else "\nvia " + mid.joinToString(", ")
+            "${r.busNo}   ${r.from} → ${r.to}  (${r.type})$via"
+        }
         list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
     }
 
-    private fun showTimings(r: Route) {
-        val t = db.timingsFor(r.id)
+    private fun showTrips(r: Route) {
+        val trips = db.tripsFor(r.id)
+        val title = "${r.busNo}  ${r.from} → ${r.to}"
+        if (trips.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage("No timings yet")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+        val labels = trips.map { tripLabel(it) }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("${r.busNo}  ${r.from} → ${r.to}")
-            .setMessage(if (t.isEmpty()) "No timings yet" else t.joinToString("\n"))
+            .setTitle(title)
+            .setItems(labels) { _, i -> showStops(trips[i]) }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun tripLabel(t: Trip): String {
+        val times = if (t.arr.isBlank()) t.dep else "${t.dep} → ${t.arr}"
+        return "$times   (${t.days})"
+    }
+
+    private fun showStops(t: Trip) {
+        AlertDialog.Builder(this)
+            .setTitle(tripLabel(t))
+            .setMessage(if (t.stops.isBlank()) "No stop times added" else t.stops)
             .setPositiveButton("OK", null)
             .show()
     }
