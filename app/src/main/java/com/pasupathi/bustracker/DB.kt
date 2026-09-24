@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import java.util.TreeSet
 
 data class Route(
     val id: String,
@@ -104,6 +105,41 @@ class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 2) {
         }
         c.close()
         return out
+    }
+
+    fun allTrips(): List<Pair<Route, Trip>> {
+        val c = readableDatabase.rawQuery(
+            "SELECT r.id,r.busNo,r.fromPlace,r.toPlace,r.type,r.stops," +
+                "t.id,t.time,t.arr,t.days,t.stops " +
+                "FROM timings t JOIN routes r ON r.id=t.routeId",
+            null
+        )
+        val out = ArrayList<Pair<Route, Trip>>()
+        while (c.moveToNext()) {
+            val r = Route(
+                c.getString(0), c.getString(1) ?: "", c.getString(2) ?: "",
+                c.getString(3) ?: "", c.getString(4) ?: "", c.getString(5) ?: ""
+            )
+            val t = Trip(
+                c.getString(6), c.getString(7) ?: "", c.getString(8) ?: "",
+                c.getString(9) ?: "", c.getString(10) ?: ""
+            )
+            out.add(Pair(r, t))
+        }
+        c.close()
+        return out
+    }
+
+    fun stopNames(): List<String> {
+        val c = readableDatabase.rawQuery("SELECT stops FROM routes", null)
+        val set = TreeSet<String>()
+        while (c.moveToNext()) {
+            (c.getString(0) ?: "").split("|").forEach {
+                if (it.isNotBlank()) set.add(it.trim())
+            }
+        }
+        c.close()
+        return set.toList()
     }
 
     fun routeCount(): Int {
