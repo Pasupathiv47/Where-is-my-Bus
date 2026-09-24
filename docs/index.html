@@ -64,7 +64,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
+window.addEventListener('unhandledrejection', e => alert(e.reason && e.reason.message ? e.reason.message : e.reason));
 let routes = [], timings = [], editId = null, started = false;
 
 onAuthStateChanged(auth, u => {
