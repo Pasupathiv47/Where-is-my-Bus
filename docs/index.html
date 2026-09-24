@@ -42,10 +42,24 @@
   <div class="card">
     <h3>Trips and times</h3>
     <select id="tr"></select>
+    <select id="dr"></select>
     <div id="ts"></div>
     <select id="td"><option>Daily</option><option>Mon-Sat</option><option>Sunday</option></select>
     <button id="addT">Add trip</button>
     <div id="tl"></div>
+  </div>
+
+  <div class="card">
+    <h3>Auto round trips</h3>
+    <small>Copies a trip, flips the direction each time, and repeats through the day.</small>
+    <label class="sl">Copy from this trip</label>
+    <select id="gs"></select>
+    <label class="sl">How many more trips</label>
+    <input id="gn" type="number" value="6">
+    <label class="sl">Rest at each end (minutes)</label>
+    <input id="gr" type="number" value="15">
+    <button id="gen">Generate</button>
+    <button id="delAll" style="background:#c62828">Delete all trips of this route</button>
   </div>
 </div>
 
@@ -70,8 +84,16 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 window.addEventListener('unhandledrejection', e => alert(e.reason && e.reason.message ? e.reason.message : e.reason));
 
+const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+const toStr = m => String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+
 let routes = [], timings = [], editId = null, started = false, stopKey = '';
 const stopsOf = r => !r ? [] : (r.stops && r.stops.length ? r.stops : [r.from, r.to]);
+const curRoute = () => routes.find(x => x.id === $('tr').value);
+const dirNames = () => {
+  const names = stopsOf(curRoute());
+  return $('dr').value === 'r' ? names.slice().reverse() : names;
+};
 
 onAuthStateChanged(auth, u => {
   $('login').hidden = !!u;
@@ -107,14 +129,24 @@ function drawRoutes() {
     `<option value="${r.id}">${esc(r.busNo)} ${esc(r.from)} → ${esc(r.to)}</option>`
   ).join('');
   if (cur) $('tr').value = cur;
+  drawDirs();
   drawStopInputs();
   drawTimes();
 }
 
+function drawDirs() {
+  const r = curRoute();
+  const cur = $('dr').value || 'f';
+  $('dr').innerHTML = r
+    ? `<option value="f">${esc(r.from)} → ${esc(r.to)}</option><option value="r">${esc(r.to)} → ${esc(r.from)} (return)</option>`
+    : '';
+  if (r) $('dr').value = cur;
+}
+
 function drawStopInputs() {
-  const r = routes.find(x => x.id === $('tr').value);
-  const names = stopsOf(r);
-  const key = (r ? r.id : '') + '|' + names.join('|');
+  const r = curRoute();
+  const names = dirNames();
+  const key = (r ? r.id : '') + '|' + $('dr').value + '|' + names.join('|');
   if (key === stopKey) return;
   stopKey = key;
   $('ts').innerHTML = names.map((n, i) => {
@@ -150,28 +182,38 @@ $('rl').onclick = async e => {
   }
 };
 
+function tripName(t) {
+  const s = t.stops || [];
+  if (s.length < 2) return t.time;
+  return `${t.time} ${s[0].n} → ${t.arr} ${s[s.length - 1].n}`;
+}
+
 function drawTimes() {
   const rid = $('tr').value;
-  $('tl').innerHTML = timings.filter(t => t.routeId === rid)
-    .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
-    .map(t => {
-      const st = (t.stops || []).map(s => `${esc(s.t || '–')} ${esc(s.n)}`).join(' · ');
-      const head = t.arr ? `${esc(t.time)} → ${esc(t.arr)}` : esc(t.time);
-      return `<div class="row"><span><b>${head}</b> (${esc(t.days)})<br><small>${st}</small></span><button data-d="${t.id}">Del</button></div>`;
-    }).join('') || 'No trips yet';
+  const mine = timings.filter(t => t.routeId === rid)
+    .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  $('tl').innerHTML = mine.map(t => {
+    const st = (t.stops || []).map(s => `${esc(s.t || '–')} ${esc(s.n)}`).join(' · ');
+    return `<div class="row"><span><b>${esc(tripName(t))}</b> (${esc(t.days)})<br><small>${st}</small></span><button data-d="${t.id}">Del</button></div>`;
+  }).join('') || 'No trips yet';
+  const curG = $('gs').value;
+  $('gs').innerHTML = mine.filter(t => t.stops && t.stops.length > 1)
+    .map(t => `<option value="${t.id}">${esc(tripName(t))} (${esc(t.days)})</option>`).join('');
+  if (curG) $('gs').value = curG;
 }
-$('tr').onchange = () => { drawStopInputs(); drawTimes(); };
+
+$('tr').onchange = () => { drawDirs(); drawStopInputs(); drawTimes(); };
+$('dr').onchange = () => drawStopInputs();
 
 $('addT').onclick = async () => {
-  const routeId = $('tr').value;
-  const r = routes.find(x => x.id === routeId);
+  const r = curRoute();
   if (!r) return alert('Choose a route');
-  const names = stopsOf(r);
+  const names = dirNames();
   const inputs = [...$('ts').querySelectorAll('input')];
   const stops = names.map((n, i) => ({ n, t: inputs[i] ? inputs[i].value : '' }));
   const dep = stops[0].t, arr = stops[stops.length - 1].t;
   if (!dep || !arr) return alert('Enter the start time (first stop) and the arrival time (last stop)');
-  await setDoc(doc(collection(db, 'timings')), { routeId, time: dep, arr, days: $('td').value, stops, deleted: false, updatedAt: Date.now() });
+  await setDoc(doc(collection(db, 'timings')), { routeId: r.id, time: dep, arr, days: $('td').value, stops, deleted: false, updatedAt: Date.now() });
   stopKey = '';
   drawStopInputs();
 };
@@ -179,6 +221,47 @@ $('addT').onclick = async () => {
 $('tl').onclick = async e => {
   const id = e.target.dataset.d;
   if (id && confirm('Delete this trip?')) await setDoc(doc(db, 'timings', id), { deleted: true, updatedAt: Date.now() }, { merge: true });
+};
+
+$('gen').onclick = async () => {
+  const src = timings.find(t => t.id === $('gs').value);
+  if (!src || !src.stops || src.stops.length < 2) return alert('Choose a trip that has stop times');
+  const n = parseInt($('gn').value, 10), rest = parseInt($('gr').value, 10);
+  if (!(n > 0) || !(rest >= 0)) return alert('Enter valid numbers');
+  const st = src.stops;
+  const dep = toMin(st[0].t), arr = toMin(st[st.length - 1].t);
+  const dur = arr - dep;
+  if (!(dur > 0)) return alert('Arrival must be after the start time');
+  const offs = st.map(s => s.t ? toMin(s.t) - dep : null);
+  let start = arr + rest, made = 0;
+  const base = Date.now();
+  for (let k = 1; k <= n; k++) {
+    if (start + dur >= 1440) break;
+    const flip = k % 2 === 1;
+    const seq = st.map((s, i) => ({ n: s.n, o: offs[i] }));
+    const ordered = flip
+      ? seq.slice().reverse().map(x => ({ n: x.n, o: x.o === null ? null : dur - x.o }))
+      : seq;
+    const out = ordered.map(x => ({ n: x.n, t: x.o === null ? '' : toStr(start + x.o) }));
+    await setDoc(doc(collection(db, 'timings')), {
+      routeId: src.routeId, time: out[0].t, arr: out[out.length - 1].t,
+      days: src.days, stops: out, deleted: false, updatedAt: base + k
+    });
+    made++;
+    start += dur + rest;
+  }
+  alert(made + ' trips created');
+};
+
+$('delAll').onclick = async () => {
+  const rid = $('tr').value;
+  const list = timings.filter(t => t.routeId === rid);
+  if (!list.length) return alert('No trips on this route');
+  if (!confirm('Delete all ' + list.length + ' trips of this route?')) return;
+  const base = Date.now();
+  await Promise.all(list.map((t, i) =>
+    setDoc(doc(db, 'timings', t.id), { deleted: true, updatedAt: base + i }, { merge: true })
+  ));
 };
 </script>
 </body>
