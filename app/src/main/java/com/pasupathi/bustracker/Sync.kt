@@ -5,8 +5,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 
 object Sync {
     fun run(ctx: Context, done: (String) -> Unit) {
-        val prefs = ctx.getSharedPreferences("sync", Context.MODE_PRIVATE)
         val db = DB(ctx)
+        db.writableDatabase
+        val prefs = ctx.getSharedPreferences("sync", Context.MODE_PRIVATE)
         val fs = FirebaseFirestore.getInstance()
         val lastR = prefs.getLong("routes", 0L)
         val lastT = prefs.getLong("timings", 0L)
@@ -21,13 +22,16 @@ object Sync {
                     if (d.getBoolean("deleted") == true) {
                         db.removeRoute(d.id)
                     } else {
+                        val stops = (d.get("stops") as? List<*>)
+                            ?.joinToString("|") { it.toString() } ?: ""
                         db.saveRoute(
                             Route(
                                 d.id,
                                 d.getString("busNo") ?: "",
                                 d.getString("from") ?: "",
                                 d.getString("to") ?: "",
-                                d.getString("type") ?: ""
+                                d.getString("type") ?: "",
+                                stops
                             )
                         )
                     }
@@ -43,11 +47,19 @@ object Sync {
                             if (d.getBoolean("deleted") == true) {
                                 db.removeTiming(d.id)
                             } else {
+                                val lines = (d.get("stops") as? List<*>)?.mapNotNull { item ->
+                                    val m = item as? Map<*, *> ?: return@mapNotNull null
+                                    val name = m["n"]?.toString() ?: ""
+                                    val t = m["t"]?.toString() ?: ""
+                                    (if (t.isBlank()) "--:--" else t) + "   " + name
+                                }?.joinToString("\n") ?: ""
                                 db.saveTiming(
                                     d.id,
                                     d.getString("routeId") ?: "",
                                     d.getString("time") ?: "",
-                                    d.getString("days") ?: ""
+                                    d.getString("arr") ?: "",
+                                    d.getString("days") ?: "",
+                                    lines
                                 )
                             }
                         }
