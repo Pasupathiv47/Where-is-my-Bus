@@ -10,17 +10,32 @@ data class Route(
     val busNo: String,
     val from: String,
     val to: String,
-    val type: String
+    val type: String,
+    val stops: String
 )
 
-class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 1) {
+data class Trip(
+    val id: String,
+    val dep: String,
+    val arr: String,
+    val days: String,
+    val stops: String
+)
+
+class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 2) {
+    private val appCtx = ctx.applicationContext
 
     override fun onCreate(d: SQLiteDatabase) {
-        d.execSQL("CREATE TABLE routes(id TEXT PRIMARY KEY, busNo TEXT, fromPlace TEXT, toPlace TEXT, type TEXT)")
-        d.execSQL("CREATE TABLE timings(id TEXT PRIMARY KEY, routeId TEXT, time TEXT, days TEXT)")
+        d.execSQL("CREATE TABLE routes(id TEXT PRIMARY KEY, busNo TEXT, fromPlace TEXT, toPlace TEXT, type TEXT, stops TEXT)")
+        d.execSQL("CREATE TABLE timings(id TEXT PRIMARY KEY, routeId TEXT, time TEXT, arr TEXT, days TEXT, stops TEXT)")
     }
 
-    override fun onUpgrade(d: SQLiteDatabase, o: Int, n: Int) {}
+    override fun onUpgrade(d: SQLiteDatabase, o: Int, n: Int) {
+        d.execSQL("DROP TABLE IF EXISTS routes")
+        d.execSQL("DROP TABLE IF EXISTS timings")
+        onCreate(d)
+        appCtx.getSharedPreferences("sync", Context.MODE_PRIVATE).edit().clear().apply()
+    }
 
     fun saveRoute(r: Route) {
         val v = ContentValues()
@@ -29,6 +44,7 @@ class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 1) {
         v.put("fromPlace", r.from)
         v.put("toPlace", r.to)
         v.put("type", r.type)
+        v.put("stops", r.stops)
         writableDatabase.insertWithOnConflict("routes", null, v, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
@@ -37,12 +53,14 @@ class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 1) {
         writableDatabase.delete("timings", "routeId=?", arrayOf(id))
     }
 
-    fun saveTiming(id: String, routeId: String, time: String, days: String) {
+    fun saveTiming(id: String, routeId: String, time: String, arr: String, days: String, stops: String) {
         val v = ContentValues()
         v.put("id", id)
         v.put("routeId", routeId)
         v.put("time", time)
+        v.put("arr", arr)
         v.put("days", days)
+        v.put("stops", stops)
         writableDatabase.insertWithOnConflict("timings", null, v, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
@@ -53,25 +71,37 @@ class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 1) {
     fun searchRoutes(q: String): List<Route> {
         val like = "%$q%"
         val c = readableDatabase.rawQuery(
-            "SELECT id,busNo,fromPlace,toPlace,type FROM routes " +
-                "WHERE busNo LIKE ? OR fromPlace LIKE ? OR toPlace LIKE ? ORDER BY busNo",
-            arrayOf(like, like, like)
+            "SELECT id,busNo,fromPlace,toPlace,type,stops FROM routes " +
+                "WHERE busNo LIKE ? OR fromPlace LIKE ? OR toPlace LIKE ? OR stops LIKE ? ORDER BY busNo",
+            arrayOf(like, like, like, like)
         )
         val out = ArrayList<Route>()
         while (c.moveToNext()) {
-            out.add(Route(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4)))
+            out.add(
+                Route(
+                    c.getString(0), c.getString(1), c.getString(2),
+                    c.getString(3), c.getString(4), c.getString(5) ?: ""
+                )
+            )
         }
         c.close()
         return out
     }
 
-    fun timingsFor(routeId: String): List<String> {
+    fun tripsFor(routeId: String): List<Trip> {
         val c = readableDatabase.rawQuery(
-            "SELECT time,days FROM timings WHERE routeId=? ORDER BY time",
+            "SELECT id,time,arr,days,stops FROM timings WHERE routeId=? ORDER BY time",
             arrayOf(routeId)
         )
-        val out = ArrayList<String>()
-        while (c.moveToNext()) out.add("${c.getString(0)}   (${c.getString(1)})")
+        val out = ArrayList<Trip>()
+        while (c.moveToNext()) {
+            out.add(
+                Trip(
+                    c.getString(0), c.getString(1) ?: "", c.getString(2) ?: "",
+                    c.getString(3) ?: "", c.getString(4) ?: ""
+                )
+            )
+        }
         c.close()
         return out
     }
