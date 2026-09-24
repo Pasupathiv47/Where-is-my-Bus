@@ -114,15 +114,15 @@ class MainActivity : Activity() {
         searching = f.isNotEmpty() || t.isNotEmpty()
 
         val labels = ArrayList<String>()
+        var nextPos = -1
         if (searching) {
             hits = findHits(f, t)
             val cal = Calendar.getInstance()
             val now = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-            var marked = false
-            for (h in hits) {
+            for ((idx, h) in hits.withIndex()) {
                 val isTime = h.fromTime.firstOrNull()?.isDigit() == true
-                val next = !marked && isTime && h.fromTime >= now
-                if (next) marked = true
+                val next = nextPos < 0 && isTime && h.fromTime >= now
+                if (next) nextPos = idx
                 val head = "${h.fromTime}  ${h.fromName}  →  ${h.toTime}  ${h.toName}"
                 val sub = "${h.route.busNo} · ${h.route.type} · ${h.trip.days}"
                 labels.add((if (next) "NEXT ▸ " else "") + head + "\n" + sub)
@@ -138,6 +138,7 @@ class MainActivity : Activity() {
             }
         }
         list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
+        if (nextPos > 0) list.setSelection(nextPos)
     }
 
     private fun parseStops(s: String): List<Pair<String, String>> =
@@ -224,6 +225,12 @@ class MainActivity : Activity() {
     }
 
     private fun tripLabel(t: Trip): String {
+        val s = parseStops(t.stops)
+        if (s.size >= 2) {
+            val a = s.first()
+            val b = s.last()
+            return "${a.first} ${a.second} → ${b.first} ${b.second}   (${t.days})"
+        }
         val times = if (t.arr.isBlank()) t.dep else "${t.dep} → ${t.arr}"
         return "$times   (${t.days})"
     }
