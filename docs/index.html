@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bus Dashboard</title>
+<style>
+  body{font-family:sans-serif;margin:0;padding:16px;background:#f4f4f4}
+  h2,h3{margin:8px 0}
+  input,select,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
+  button{background:#1a73e8;color:#fff;border:0;border-radius:6px;width:auto;padding:8px 14px}
+  .card{background:#fff;border-radius:8px;padding:12px;margin-bottom:16px}
+  .row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;gap:8px}
+</style>
+</head>
+<body>
+
+<div id="login" class="card">
+  <h2>Bus Dashboard Login</h2>
+  <input id="em" type="email" placeholder="Email">
+  <input id="pw" type="password" placeholder="Password">
+  <button id="go">Login</button>
+</div>
+
+<div id="app" hidden>
+  <div class="row"><h2>Bus Dashboard</h2><button id="out">Logout</button></div>
+
+  <div class="card">
+    <h3>Routes</h3>
+    <input id="bn" placeholder="Bus number (e.g. 27A)">
+    <input id="fr" placeholder="From">
+    <input id="rt" placeholder="To">
+    <select id="ty"><option>TNSTC</option><option>Private</option></select>
+    <button id="saveR">Add route</button>
+    <div id="rl"></div>
+  </div>
+
+  <div class="card">
+    <h3>Timings</h3>
+    <select id="tr"></select>
+    <input id="tt" type="time">
+    <select id="td"><option>Daily</option><option>Mon-Sat</option><option>Sunday</option></select>
+    <button id="addT">Add timing</button>
+    <div id="tl"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "PASTE_HERE",
+  authDomain: "PASTE_HERE",
+  projectId: "PASTE_HERE",
+  storageBucket: "PASTE_HERE",
+  messagingSenderId: "PASTE_HERE",
+  appId: "PASTE_HERE"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let routes = [], timings = [], editId = null, started = false;
+
+onAuthStateChanged(auth, u => {
+  $('login').hidden = !!u;
+  $('app').hidden = !u;
+  if (u) start();
+});
+$('go').onclick = () => signInWithEmailAndPassword(auth, $('em').value, $('pw').value).catch(e => alert(e.message));
+$('out').onclick = () => signOut(auth);
+
+function start() {
+  if (started) return;
+  started = true;
+  onSnapshot(collection(db, 'routes'), s => {
+    routes = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !r.deleted);
+    drawRoutes();
+  });
+  onSnapshot(collection(db, 'timings'), s => {
+    timings = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => !t.deleted);
+    drawTimes();
+  });
+}
+
+function drawRoutes() {
+  routes.sort((a, b) => a.busNo.localeCompare(b.busNo));
+  $('rl').innerHTML = routes.map(r =>
+    `<div class="row"><span><b>${esc(r.busNo)}</b> ${esc(r.from)} → ${esc(r.to)} (${esc(r.type)})</span>
+     <span><button data-e="${r.id}">Edit</button> <button data-d="${r.id}">Del</button></span></div>`
+  ).join('') || 'No routes yet';
+  const cur = $('tr').value;
+  $('tr').innerHTML = routes.map(r =>
+    `<option value="${r.id}">${esc(r.busNo)} ${esc(r.from)} → ${esc(r.to)}</option>`
+  ).join('');
+  if (cur) $('tr').value = cur;
+  drawTimes();
+}
+
+$('saveR').onclick = async () => {
+  const busNo = $('bn').value.trim(), from = $('fr').value.trim(), to = $('rt').value.trim(), type = $('ty').value;
+  if (!busNo || !from || !to) return alert('Fill all fields');
+  const ref = editId ? doc(db, 'routes', editId) : doc(collection(db, 'routes'));
+  await setDoc(ref, { busNo, from, to, type, deleted: false, updatedAt: Date.now() }, { merge: true });
+  editId = null;
+  $('bn').value = ''; $('fr').value = ''; $('rt').value = '';
+  $('saveR').textContent = 'Add route';
+};
+
+$('rl').onclick = async e => {
+  const b = e.target;
+  if (b.dataset.e) {
+    const r = routes.find(x => x.id === b.dataset.e);
+    editId = r.id;
+    $('bn').value = r.busNo; $('fr').value = r.from; $('rt').value = r.to; $('ty').value = r.type;
+    $('saveR').textContent = 'Update route';
+    window.scrollTo(0, 0);
+  }
+  if (b.dataset.d && confirm('Delete this route?')) {
+    await setDoc(doc(db, 'routes', b.dataset.d), { deleted: true, updatedAt: Date.now() }, { merge: true });
+  }
+};
+
+function drawTimes() {
+  const rid = $('tr').value;
+  $('tl').innerHTML = timings.filter(t => t.routeId === rid)
+    .sort((a, b) => a.time.localeCompare(b.time))
+    .map(t => `<div class="row"><span>${esc(t.time)} · ${esc(t.days)}</span><button data-d="${t.id}">Del</button></div>`)
+    .join('') || 'No timings';
+}
+$('tr').onchange = drawTimes;
+
+$('addT').onclick = async () => {
+  const routeId = $('tr').value, time = $('tt').value, days = $('td').value;
+  if (!routeId || !time) return alert('Choose a route and time');
+  await setDoc(doc(collection(db, 'timings')), { routeId, time, days, deleted: false, updatedAt: Date.now() });
+};
+
+$('tl').onclick = async e => {
+  const id = e.target.dataset.d;
+  if (id) await setDoc(doc(db, 'timings', id), { deleted: true, updatedAt: Date.now() }, { merge: true });
+};
+</script>
+</body>
+      </html>
