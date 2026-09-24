@@ -7,10 +7,13 @@
 <style>
   body{font-family:sans-serif;margin:0;padding:16px;background:#f4f4f4}
   h2,h3{margin:8px 0}
-  input,select,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
+  input,select,textarea,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
+  textarea{height:90px;font-family:sans-serif}
   button{background:#1a73e8;color:#fff;border:0;border-radius:6px;width:auto;padding:8px 14px}
   .card{background:#fff;border-radius:8px;padding:12px;margin-bottom:16px}
   .row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;gap:8px}
+  .sl{display:block;margin-top:8px;font-weight:bold;font-size:14px}
+  small{color:#555}
 </style>
 </head>
 <body>
@@ -28,19 +31,20 @@
   <div class="card">
     <h3>Routes</h3>
     <input id="bn" placeholder="Bus number (e.g. 27A)">
-    <input id="fr" placeholder="From">
-    <input id="rt" placeholder="To">
+    <input id="fr" placeholder="From (start place)">
+    <textarea id="vi" placeholder="Stops in between, one per line, in order"></textarea>
+    <input id="rt" placeholder="To (final place)">
     <select id="ty"><option>TNSTC</option><option>Private</option></select>
     <button id="saveR">Add route</button>
     <div id="rl"></div>
   </div>
 
   <div class="card">
-    <h3>Timings</h3>
+    <h3>Trips and times</h3>
     <select id="tr"></select>
-    <input id="tt" type="time">
+    <div id="ts"></div>
     <select id="td"><option>Daily</option><option>Mon-Sat</option><option>Sunday</option></select>
-    <button id="addT">Add timing</button>
+    <button id="addT">Add trip</button>
     <div id="tl"></div>
   </div>
 </div>
@@ -65,7 +69,9 @@ const db = getFirestore(app);
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 window.addEventListener('unhandledrejection', e => alert(e.reason && e.reason.message ? e.reason.message : e.reason));
-let routes = [], timings = [], editId = null, started = false;
+
+let routes = [], timings = [], editId = null, started = false, stopKey = '';
+const stopsOf = r => !r ? [] : (r.stops && r.stops.length ? r.stops : [r.from, r.to]);
 
 onAuthStateChanged(auth, u => {
   $('login').hidden = !!u;
@@ -90,25 +96,42 @@ function start() {
 
 function drawRoutes() {
   routes.sort((a, b) => a.busNo.localeCompare(b.busNo));
-  $('rl').innerHTML = routes.map(r =>
-    `<div class="row"><span><b>${esc(r.busNo)}</b> ${esc(r.from)} → ${esc(r.to)} (${esc(r.type)})</span>
-     <span><button data-e="${r.id}">Edit</button> <button data-d="${r.id}">Del</button></span></div>`
-  ).join('') || 'No routes yet';
+  $('rl').innerHTML = routes.map(r => {
+    const mid = stopsOf(r).slice(1, -1);
+    const via = mid.length ? `<br><small>via ${esc(mid.join(', '))}</small>` : '';
+    return `<div class="row"><span><b>${esc(r.busNo)}</b> ${esc(r.from)} → ${esc(r.to)} (${esc(r.type)})${via}</span>
+     <span><button data-e="${r.id}">Edit</button> <button data-d="${r.id}">Del</button></span></div>`;
+  }).join('') || 'No routes yet';
   const cur = $('tr').value;
   $('tr').innerHTML = routes.map(r =>
     `<option value="${r.id}">${esc(r.busNo)} ${esc(r.from)} → ${esc(r.to)}</option>`
   ).join('');
   if (cur) $('tr').value = cur;
+  drawStopInputs();
   drawTimes();
+}
+
+function drawStopInputs() {
+  const r = routes.find(x => x.id === $('tr').value);
+  const names = stopsOf(r);
+  const key = (r ? r.id : '') + '|' + names.join('|');
+  if (key === stopKey) return;
+  stopKey = key;
+  $('ts').innerHTML = names.map((n, i) => {
+    const tag = i === 0 ? ' (start)' : (i === names.length - 1 ? ' (arrival)' : '');
+    return `<label class="sl">${esc(n)}${tag}</label><input type="time">`;
+  }).join('');
 }
 
 $('saveR').onclick = async () => {
   const busNo = $('bn').value.trim(), from = $('fr').value.trim(), to = $('rt').value.trim(), type = $('ty').value;
-  if (!busNo || !from || !to) return alert('Fill all fields');
+  const via = $('vi').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!busNo || !from || !to) return alert('Fill bus number, from and to');
+  const stops = [from, ...via, to];
   const ref = editId ? doc(db, 'routes', editId) : doc(collection(db, 'routes'));
-  await setDoc(ref, { busNo, from, to, type, deleted: false, updatedAt: Date.now() }, { merge: true });
+  await setDoc(ref, { busNo, from, to, type, stops, deleted: false, updatedAt: Date.now() }, { merge: true });
   editId = null;
-  $('bn').value = ''; $('fr').value = ''; $('rt').value = '';
+  $('bn').value = ''; $('fr').value = ''; $('rt').value = ''; $('vi').value = '';
   $('saveR').textContent = 'Add route';
 };
 
@@ -118,6 +141,7 @@ $('rl').onclick = async e => {
     const r = routes.find(x => x.id === b.dataset.e);
     editId = r.id;
     $('bn').value = r.busNo; $('fr').value = r.from; $('rt').value = r.to; $('ty').value = r.type;
+    $('vi').value = stopsOf(r).slice(1, -1).join('\n');
     $('saveR').textContent = 'Update route';
     window.scrollTo(0, 0);
   }
@@ -129,22 +153,33 @@ $('rl').onclick = async e => {
 function drawTimes() {
   const rid = $('tr').value;
   $('tl').innerHTML = timings.filter(t => t.routeId === rid)
-    .sort((a, b) => a.time.localeCompare(b.time))
-    .map(t => `<div class="row"><span>${esc(t.time)} · ${esc(t.days)}</span><button data-d="${t.id}">Del</button></div>`)
-    .join('') || 'No timings';
+    .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+    .map(t => {
+      const st = (t.stops || []).map(s => `${esc(s.t || '–')} ${esc(s.n)}`).join(' · ');
+      const head = t.arr ? `${esc(t.time)} → ${esc(t.arr)}` : esc(t.time);
+      return `<div class="row"><span><b>${head}</b> (${esc(t.days)})<br><small>${st}</small></span><button data-d="${t.id}">Del</button></div>`;
+    }).join('') || 'No trips yet';
 }
-$('tr').onchange = drawTimes;
+$('tr').onchange = () => { drawStopInputs(); drawTimes(); };
 
 $('addT').onclick = async () => {
-  const routeId = $('tr').value, time = $('tt').value, days = $('td').value;
-  if (!routeId || !time) return alert('Choose a route and time');
-  await setDoc(doc(collection(db, 'timings')), { routeId, time, days, deleted: false, updatedAt: Date.now() });
+  const routeId = $('tr').value;
+  const r = routes.find(x => x.id === routeId);
+  if (!r) return alert('Choose a route');
+  const names = stopsOf(r);
+  const inputs = [...$('ts').querySelectorAll('input')];
+  const stops = names.map((n, i) => ({ n, t: inputs[i] ? inputs[i].value : '' }));
+  const dep = stops[0].t, arr = stops[stops.length - 1].t;
+  if (!dep || !arr) return alert('Enter the start time (first stop) and the arrival time (last stop)');
+  await setDoc(doc(collection(db, 'timings')), { routeId, time: dep, arr, days: $('td').value, stops, deleted: false, updatedAt: Date.now() });
+  stopKey = '';
+  drawStopInputs();
 };
 
 $('tl').onclick = async e => {
   const id = e.target.dataset.d;
-  if (id) await setDoc(doc(db, 'timings', id), { deleted: true, updatedAt: Date.now() }, { merge: true });
+  if (id && confirm('Delete this trip?')) await setDoc(doc(db, 'timings', id), { deleted: true, updatedAt: Date.now() }, { merge: true });
 };
 </script>
 </body>
-      </html>
+</html>
