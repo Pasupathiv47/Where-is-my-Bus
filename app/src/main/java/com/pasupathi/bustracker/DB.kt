@@ -27,16 +27,17 @@ data class Bus(
     val id: String,
     val busNo: String,
     val regNo: String,
+    val type: String,
     val photo: String
 )
 
-class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 3) {
+class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 4) {
     private val appCtx = ctx.applicationContext
 
     override fun onCreate(d: SQLiteDatabase) {
         d.execSQL("CREATE TABLE routes(id TEXT PRIMARY KEY, busNo TEXT, fromPlace TEXT, toPlace TEXT, type TEXT, stops TEXT)")
         d.execSQL("CREATE TABLE timings(id TEXT PRIMARY KEY, routeId TEXT, time TEXT, arr TEXT, days TEXT, stops TEXT)")
-        d.execSQL("CREATE TABLE buses(id TEXT PRIMARY KEY, busNo TEXT, regNo TEXT, photo TEXT)")
+        d.execSQL("CREATE TABLE buses(id TEXT PRIMARY KEY, busNo TEXT, regNo TEXT, type TEXT, photo TEXT)")
     }
 
     override fun onUpgrade(d: SQLiteDatabase, o: Int, n: Int) {
@@ -72,7 +73,8 @@ class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 3) {
 
     fun saveBus(b: Bus) {
         val v = ContentValues()
-        v.put("id", b.id); v.put("busNo", b.busNo); v.put("regNo", b.regNo); v.put("photo", b.photo)
+        v.put("id", b.id); v.put("busNo", b.busNo); v.put("regNo", b.regNo)
+        v.put("type", b.type); v.put("photo", b.photo)
         writableDatabase.insertWithOnConflict("buses", null, v, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
@@ -81,10 +83,10 @@ class DB(ctx: Context) : SQLiteOpenHelper(ctx, "bus.db", null, 3) {
     }
 
     fun allBuses(): List<Bus> {
-        val c = readableDatabase.rawQuery("SELECT id,busNo,regNo,photo FROM buses ORDER BY busNo", null)
+        val c = readableDatabase.rawQuery("SELECT id,busNo,regNo,type,photo FROM buses ORDER BY busNo", null)
         val out = ArrayList<Bus>()
         while (c.moveToNext()) {
-            out.add(Bus(c.getString(0), c.getString(1) ?: "", c.getString(2) ?: "", c.getString(3) ?: ""))
+            out.add(Bus(c.getString(0), c.getString(1) ?: "", c.getString(2) ?: "", c.getString(3) ?: "", c.getString(4) ?: ""))
         }
         c.close()
         return out
