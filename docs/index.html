@@ -40,6 +40,16 @@
   </div>
 
   <div class="card">
+    <h3>Buses (profile)</h3>
+    <input id="bb" placeholder="Bus name or number (e.g. TN31 27A)">
+    <input id="br" placeholder="Registration number (e.g. TN31AB1234)">
+    <input id="bp" type="file" accept="image/*">
+    <img id="bprev" style="max-width:160px;display:none;border-radius:8px;margin-top:8px">
+    <button id="saveB">Add bus</button>
+    <div id="bl"></div>
+  </div>
+
+  <div class="card">
     <h3>Trips and times</h3>
     <select id="tr"></select>
     <select id="dr"></select>
@@ -87,7 +97,7 @@ window.addEventListener('unhandledrejection', e => alert(e.reason && e.reason.me
 const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const toStr = m => String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 
-let routes = [], timings = [], editId = null, started = false, stopKey = '';
+let routes = [], timings = [], buses = [], editId = null, editBusId = null, started = false, stopKey = '', photoData = '';
 const stopsOf = r => !r ? [] : (r.stops && r.stops.length ? r.stops : [r.from, r.to]);
 const curRoute = () => routes.find(x => x.id === $('tr').value);
 const dirNames = () => {
@@ -113,6 +123,10 @@ function start() {
   onSnapshot(collection(db, 'timings'), s => {
     timings = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => !t.deleted);
     drawTimes();
+  });
+  onSnapshot(collection(db, 'buses'), s => {
+    buses = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => !b.deleted);
+    drawBuses();
   });
 }
 
@@ -179,6 +193,63 @@ $('rl').onclick = async e => {
   }
   if (b.dataset.d && confirm('Delete this route?')) {
     await setDoc(doc(db, 'routes', b.dataset.d), { deleted: true, updatedAt: Date.now() }, { merge: true });
+  }
+};
+
+function resizePhoto(file, cb) {
+  const img = new Image();
+  const reader = new FileReader();
+  reader.onload = () => {
+    img.onload = () => {
+      const w = Math.min(300, img.width);
+      const h = Math.round(img.height * (w / img.width));
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      cb(c.toDataURL('image/jpeg', 0.6));
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+$('bp').onchange = () => {
+  const f = $('bp').files[0];
+  if (!f) return;
+  resizePhoto(f, url => { photoData = url; $('bprev').src = url; $('bprev').style.display = 'block'; });
+};
+
+function drawBuses() {
+  buses.sort((a, b) => a.busNo.localeCompare(b.busNo));
+  $('bl').innerHTML = buses.map(b =>
+    `<div class="row">${b.photo ? `<img src="${b.photo}" style="width:56px;height:56px;object-fit:cover;border-radius:8px">` : ''}
+     <span style="flex:1">&nbsp;<b>${esc(b.busNo)}</b><br><small>${esc(b.regNo)}</small></span>
+     <span><button data-e="${b.id}">Edit</button> <button data-d="${b.id}">Del</button></span></div>`
+  ).join('') || 'No buses yet';
+}
+
+$('saveB').onclick = async () => {
+  const busNo = $('bb').value.trim(), regNo = $('br').value.trim();
+  if (!busNo) return alert('Enter a bus name or number');
+  const ref = editBusId ? doc(db, 'buses', editBusId) : doc(collection(db, 'buses'));
+  await setDoc(ref, { busNo, regNo, photo: photoData, deleted: false, updatedAt: Date.now() }, { merge: true });
+  editBusId = null; photoData = '';
+  $('bb').value = ''; $('br').value = ''; $('bp').value = ''; $('bprev').style.display = 'none';
+  $('saveB').textContent = 'Add bus';
+};
+
+$('bl').onclick = async e => {
+  const b = e.target;
+  if (b.dataset.e) {
+    const x = buses.find(v => v.id === b.dataset.e);
+    editBusId = x.id; photoData = x.photo || '';
+    $('bb').value = x.busNo; $('br').value = x.regNo;
+    if (x.photo) { $('bprev').src = x.photo; $('bprev').style.display = 'block'; }
+    $('saveB').textContent = 'Update bus';
+    window.scrollTo(0, 0);
+  }
+  if (b.dataset.d && confirm('Delete this bus?')) {
+    await setDoc(doc(db, 'buses', b.dataset.d), { deleted: true, updatedAt: Date.now() }, { merge: true });
   }
 };
 
