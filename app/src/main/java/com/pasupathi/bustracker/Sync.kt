@@ -58,7 +58,7 @@ object Sync {
                                     if (d.getBoolean("deleted") == true) {
                                         db.removeBus(d.id)
                                     } else {
-                                        db.saveBus(Bus(d.id, d.getString("busNo") ?: "", d.getString("regNo") ?: "", d.getString("photo") ?: ""))
+                                        db.saveBus(Bus(d.id, d.getString("busNo") ?: "", d.getString("regNo") ?: "", d.getString("type") ?: "TNSTC", d.getString("photo") ?: ""))
                                     }
                                 }
                                 prefs.edit().putLong("buses", maxB).apply()
