@@ -1,6 +1,7 @@
 package com.pasupathi.bustracker
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Base64
@@ -54,6 +55,22 @@ class BusesActivity : Activity() {
                 row.addView(col)
                 return row
             }
+        }
+        list.setOnItemClickListener { _, _, pos, _ ->
+            val b = buses[pos]
+            if (b.photo.isBlank()) return@setOnItemClickListener
+            val iv = ImageView(this)
+            iv.adjustViewBounds = true
+            iv.setPadding(32, 32, 32, 32)
+            try {
+                val bytes = Base64.decode(b.photo.substringAfter(",", ""), Base64.DEFAULT)
+                iv.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+            } catch (e: Exception) { }
+            AlertDialog.Builder(this)
+                .setTitle("${b.busNo}  ${b.regNo}")
+                .setView(iv)
+                .setPositiveButton("Close", null)
+                .show()
         }
         setContentView(list)
     }
