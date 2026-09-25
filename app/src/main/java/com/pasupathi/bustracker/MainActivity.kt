@@ -2,12 +2,19 @@ package com.pasupathi.bustracker
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Base64
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
+import android.widget.BaseAdapter
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
@@ -33,6 +40,7 @@ class MainActivity : Activity() {
     private var routes: List<Route> = emptyList()
     private var hits: List<Hit> = emptyList()
     private var searching = false
+    private var busPhotos: Map<String, String> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,12 +71,19 @@ class MainActivity : Activity() {
             refresh()
         }
 
+        val busesBtn = Button(this)
+        busesBtn.text = "🚌 Bus profiles"
+        busesBtn.setOnClickListener {
+            startActivity(Intent(this, BusesActivity::class.java))
+        }
+
         list = ListView(this)
 
         root.addView(status)
         root.addView(fromBox)
         root.addView(toBox)
         root.addView(swap)
+        root.addView(busesBtn)
         root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
@@ -106,6 +121,12 @@ class MainActivity : Activity() {
         val names = db.stopNames()
         fromBox.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, names))
         toBox.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, names))
+        busPhotos = db.allBuses().associate { it.busNo to it.photo }
+    }
+
+    private fun photoFor(busNo: String): String? {
+        val p = busPhotos[busNo]
+        return if (p.isNullOrBlank()) null else p
     }
 
     private fun refresh() {
@@ -113,7 +134,7 @@ class MainActivity : Activity() {
         val t = toBox.text.toString().trim()
         searching = f.isNotEmpty() || t.isNotEmpty()
 
-        val labels = ArrayList<String>()
+        val rows = ArrayList<Pair<String, String?>>()
         var nextPos = -1
         if (searching) {
             hits = findHits(f, t)
@@ -125,19 +146,19 @@ class MainActivity : Activity() {
                 if (next) nextPos = idx
                 val head = "${h.fromTime}  ${h.fromName}  →  ${h.toTime}  ${h.toName}"
                 val sub = "${h.route.busNo} · ${h.route.type} · ${h.trip.days}"
-                labels.add((if (next) "NEXT ▸ " else "") + head + "\n" + sub)
+                rows.add(Pair((if (next) "NEXT ▸ " else "") + head + "\n" + sub, photoFor(h.route.busNo)))
             }
-            if (hits.isEmpty()) labels.add("No buses found for today")
+            if (hits.isEmpty()) rows.add(Pair("No buses found for today", null))
         } else {
             hits = emptyList()
             routes = db.searchRoutes("")
             for (r in routes) {
                 val mid = r.stops.split("|").filter { it.isNotBlank() }.drop(1).dropLast(1)
                 val via = if (mid.isEmpty()) "" else "\nvia " + mid.joinToString(", ")
-                labels.add("${r.busNo}   ${r.from} → ${r.to}  (${r.type})$via")
+                rows.add(Pair("${r.busNo}   ${r.from} → ${r.to}  (${r.type})$via", photoFor(r.busNo)))
             }
         }
-        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
+        list.adapter = PhotoRowAdapter(this, rows)
         if (nextPos > 0) list.setSelection(nextPos)
     }
 
@@ -198,28 +219,37 @@ class MainActivity : Activity() {
                 else -> "   $l"
             }
         }.joinToString("\n")
-        AlertDialog.Builder(this)
+        val d = AlertDialog.Builder(this)
             .setTitle("${h.route.busNo}  ${h.route.from} → ${h.route.to}")
             .setMessage(body)
             .setPositiveButton("OK", null)
-            .show()
+        photoFor(h.route.busNo)?.let { d.setView(photoView(it)) }
+        d.show()
+    }
+
+    private fun photoView(dataUrl: String): ImageView {
+        val iv = ImageView(this)
+        iv.adjustViewBounds = true
+        iv.setPadding(32, 16, 32, 0)
+        try {
+            val b64 = dataUrl.substringAfter(",", "")
+            val bytes = Base64.decode(b64, Base64.DEFAULT)
+            iv.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+        } catch (e: Exception) { }
+        return iv
     }
 
     private fun showTrips(r: Route) {
         val trips = db.tripsFor(r.id)
         val title = "${r.busNo}  ${r.from} → ${r.to}"
+        val d = AlertDialog.Builder(this).setTitle(title)
+        photoFor(r.busNo)?.let { d.setView(photoView(it)) }
         if (trips.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle(title)
-                .setMessage("No timings yet")
-                .setPositiveButton("OK", null)
-                .show()
+            d.setMessage("No timings yet").setPositiveButton("OK", null).show()
             return
         }
         val labels = trips.map { tripLabel(it) }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setItems(labels) { _, i -> showStops(trips[i]) }
+        d.setItems(labels) { _, i -> showStops(trips[i]) }
             .setPositiveButton("Close", null)
             .show()
     }
@@ -241,5 +271,38 @@ class MainActivity : Activity() {
             .setMessage(if (t.stops.isBlank()) "No stop times added" else t.stops)
             .setPositiveButton("OK", null)
             .show()
+    }
+}
+
+class PhotoRowAdapter(
+    private val ctx: Activity,
+    private val rows: List<Pair<String, String?>>
+) : BaseAdapter() {
+    override fun getCount() = rows.size
+    override fun getItem(i: Int) = rows[i]
+    override fun getItemId(i: Int) = i.toLong()
+    override fun getView(i: Int, convertView: View?, parent: ViewGroup?): View {
+        val (text, photo) = rows[i]
+        val row = LinearLayout(ctx)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.setPadding(8, 24, 8, 24)
+
+        if (photo != null) {
+            val img = ImageView(ctx)
+            img.layoutParams = LinearLayout.LayoutParams(140, 140)
+            try {
+                val b64 = photo.substringAfter(",", "")
+                val bytes = Base64.decode(b64, Base64.DEFAULT)
+                img.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+            } catch (e: Exception) { }
+            row.addView(img)
+        }
+
+        val tv = TextView(ctx)
+        tv.text = text
+        tv.textSize = 16f
+        tv.setPadding(if (photo != null) 24 else 0, 0, 0, 0)
+        row.addView(tv)
+        return row
     }
 }
