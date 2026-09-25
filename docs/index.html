@@ -29,7 +29,20 @@
   <div class="row"><h2>Bus Dashboard</h2><button id="out">Logout</button></div>
 
   <div class="card">
+    <h3>Buses (profile)</h3>
+    <input id="bb" placeholder="Bus name or number (e.g. TN31 27A)">
+    <input id="br" placeholder="Registration number (e.g. TN31AB1234)">
+    <select id="bt"><option>TNSTC</option><option>Private</option></select>
+    <input id="bp" type="file" accept="image/*">
+    <img id="bprev" style="max-width:160px;display:none;border-radius:8px;margin-top:8px">
+    <button id="saveB">Add bus</button>
+    <div id="bl"></div>
+  </div>
+
+  <div class="card">
     <h3>Routes</h3>
+    <label class="sl">Pick a bus profile (optional, fills the fields below)</label>
+    <select id="pb"><option value="">-- Choose a bus profile --</option></select>
     <input id="bn" placeholder="Bus number (e.g. 27A)">
     <input id="fr" placeholder="From (start place)">
     <textarea id="vi" placeholder="Stops in between, one per line, in order"></textarea>
@@ -37,16 +50,6 @@
     <select id="ty"><option>TNSTC</option><option>Private</option></select>
     <button id="saveR">Add route</button>
     <div id="rl"></div>
-  </div>
-
-  <div class="card">
-    <h3>Buses (profile)</h3>
-    <input id="bb" placeholder="Bus name or number (e.g. TN31 27A)">
-    <input id="br" placeholder="Registration number (e.g. TN31AB1234)">
-    <input id="bp" type="file" accept="image/*">
-    <img id="bprev" style="max-width:160px;display:none;border-radius:8px;margin-top:8px">
-    <button id="saveB">Add bus</button>
-    <div id="bl"></div>
   </div>
 
   <div class="card">
@@ -127,8 +130,24 @@ function start() {
   onSnapshot(collection(db, 'buses'), s => {
     buses = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => !b.deleted);
     drawBuses();
+    drawPicker();
   });
 }
+
+function drawPicker() {
+  buses.sort((a, b) => a.busNo.localeCompare(b.busNo));
+  const cur = $('pb').value;
+  $('pb').innerHTML = '<option value="">-- Choose a bus profile --</option>' +
+    buses.map(b => `<option value="${b.id}">${esc(b.busNo)} (${esc(b.regNo)}) - ${esc(b.type || 'TNSTC')}</option>`).join('');
+  if (cur) $('pb').value = cur;
+}
+
+$('pb').onchange = () => {
+  const b = buses.find(x => x.id === $('pb').value);
+  if (!b) return;
+  $('bn').value = b.busNo;
+  $('ty').value = b.type || 'TNSTC';
+};
 
 function drawRoutes() {
   routes.sort((a, b) => a.busNo.localeCompare(b.busNo));
@@ -177,7 +196,7 @@ $('saveR').onclick = async () => {
   const ref = editId ? doc(db, 'routes', editId) : doc(collection(db, 'routes'));
   await setDoc(ref, { busNo, from, to, type, stops, deleted: false, updatedAt: Date.now() }, { merge: true });
   editId = null;
-  $('bn').value = ''; $('fr').value = ''; $('rt').value = ''; $('vi').value = '';
+  $('bn').value = ''; $('fr').value = ''; $('rt').value = ''; $('vi').value = ''; $('pb').value = '';
   $('saveR').textContent = 'Add route';
 };
 
@@ -223,18 +242,18 @@ function drawBuses() {
   buses.sort((a, b) => a.busNo.localeCompare(b.busNo));
   $('bl').innerHTML = buses.map(b =>
     `<div class="row">${b.photo ? `<img src="${b.photo}" style="width:56px;height:56px;object-fit:cover;border-radius:8px">` : ''}
-     <span style="flex:1">&nbsp;<b>${esc(b.busNo)}</b><br><small>${esc(b.regNo)}</small></span>
+     <span style="flex:1">&nbsp;<b>${esc(b.busNo)}</b><br><small>${esc(b.regNo)} · ${esc(b.type || 'TNSTC')}</small></span>
      <span><button data-e="${b.id}">Edit</button> <button data-d="${b.id}">Del</button></span></div>`
   ).join('') || 'No buses yet';
 }
 
 $('saveB').onclick = async () => {
-  const busNo = $('bb').value.trim(), regNo = $('br').value.trim();
+  const busNo = $('bb').value.trim(), regNo = $('br').value.trim(), type = $('bt').value;
   if (!busNo) return alert('Enter a bus name or number');
   const ref = editBusId ? doc(db, 'buses', editBusId) : doc(collection(db, 'buses'));
-  await setDoc(ref, { busNo, regNo, photo: photoData, deleted: false, updatedAt: Date.now() }, { merge: true });
+  await setDoc(ref, { busNo, regNo, type, photo: photoData, deleted: false, updatedAt: Date.now() }, { merge: true });
   editBusId = null; photoData = '';
-  $('bb').value = ''; $('br').value = ''; $('bp').value = ''; $('bprev').style.display = 'none';
+  $('bb').value = ''; $('br').value = ''; $('bt').value = 'TNSTC'; $('bp').value = ''; $('bprev').style.display = 'none';
   $('saveB').textContent = 'Add bus';
 };
 
@@ -243,7 +262,7 @@ $('bl').onclick = async e => {
   if (b.dataset.e) {
     const x = buses.find(v => v.id === b.dataset.e);
     editBusId = x.id; photoData = x.photo || '';
-    $('bb').value = x.busNo; $('br').value = x.regNo;
+    $('bb').value = x.busNo; $('br').value = x.regNo; $('bt').value = x.type || 'TNSTC';
     if (x.photo) { $('bprev').src = x.photo; $('bprev').style.display = 'block'; }
     $('saveB').textContent = 'Update bus';
     window.scrollTo(0, 0);
