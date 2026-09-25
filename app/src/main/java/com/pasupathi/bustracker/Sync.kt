@@ -11,6 +11,7 @@ object Sync {
         val fs = FirebaseFirestore.getInstance()
         val lastR = prefs.getLong("routes", 0L)
         val lastT = prefs.getLong("timings", 0L)
+        val lastB = prefs.getLong("buses", 0L)
         val fail = { done("Offline - showing saved data") }
 
         fs.collection("routes").whereGreaterThan("updatedAt", lastR).get()
@@ -22,18 +23,8 @@ object Sync {
                     if (d.getBoolean("deleted") == true) {
                         db.removeRoute(d.id)
                     } else {
-                        val stops = (d.get("stops") as? List<*>)
-                            ?.joinToString("|") { it.toString() } ?: ""
-                        db.saveRoute(
-                            Route(
-                                d.id,
-                                d.getString("busNo") ?: "",
-                                d.getString("from") ?: "",
-                                d.getString("to") ?: "",
-                                d.getString("type") ?: "",
-                                stops
-                            )
-                        )
+                        val stops = (d.get("stops") as? List<*>)?.joinToString("|") { it.toString() } ?: ""
+                        db.saveRoute(Route(d.id, d.getString("busNo") ?: "", d.getString("from") ?: "", d.getString("to") ?: "", d.getString("type") ?: "", stops))
                     }
                 }
                 prefs.edit().putLong("routes", max).apply()
@@ -53,18 +44,27 @@ object Sync {
                                     val t = m["t"]?.toString() ?: ""
                                     (if (t.isBlank()) "--:--" else t) + "   " + name
                                 }?.joinToString("\n") ?: ""
-                                db.saveTiming(
-                                    d.id,
-                                    d.getString("routeId") ?: "",
-                                    d.getString("time") ?: "",
-                                    d.getString("arr") ?: "",
-                                    d.getString("days") ?: "",
-                                    lines
-                                )
+                                db.saveTiming(d.id, d.getString("routeId") ?: "", d.getString("time") ?: "", d.getString("arr") ?: "", d.getString("days") ?: "", lines)
                             }
                         }
                         prefs.edit().putLong("timings", maxT).apply()
-                        done("Up to date · ${db.routeCount()} routes")
+
+                        fs.collection("buses").whereGreaterThan("updatedAt", lastB).get()
+                            .addOnSuccessListener { bs ->
+                                var maxB = lastB
+                                for (d in bs) {
+                                    val u = d.getLong("updatedAt") ?: 0L
+                                    if (u > maxB) maxB = u
+                                    if (d.getBoolean("deleted") == true) {
+                                        db.removeBus(d.id)
+                                    } else {
+                                        db.saveBus(Bus(d.id, d.getString("busNo") ?: "", d.getString("regNo") ?: "", d.getString("photo") ?: ""))
+                                    }
+                                }
+                                prefs.edit().putLong("buses", maxB).apply()
+                                done("Up to date · ${db.routeCount()} routes")
+                            }
+                            .addOnFailureListener { fail() }
                     }
                     .addOnFailureListener { fail() }
             }
