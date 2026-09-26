@@ -2,11 +2,8 @@ package com.pasupathi.bustracker
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
@@ -37,9 +34,7 @@ class MainActivity : Activity() {
     private lateinit var fromBox: AutoCompleteTextView
     private lateinit var toBox: AutoCompleteTextView
     private lateinit var list: ListView
-    private var routes: List<Route> = emptyList()
     private var hits: List<Hit> = emptyList()
-    private var searching = false
     private var busPhotos: Map<String, String> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,19 +57,16 @@ class MainActivity : Activity() {
         toBox.threshold = 1
         toBox.setSingleLine(true)
 
+        val findBtn = Button(this)
+        findBtn.text = "🔍  Find Bus"
+        findBtn.setOnClickListener { search() }
+
         val swap = Button(this)
         swap.text = "⇅  Swap"
         swap.setOnClickListener {
             val a = fromBox.text.toString()
             fromBox.setText(toBox.text.toString(), false)
             toBox.setText(a, false)
-            refresh()
-        }
-
-        val busesBtn = Button(this)
-        busesBtn.text = "🚌 Bus profiles"
-        busesBtn.setOnClickListener {
-            startActivity(Intent(this, BusesActivity::class.java))
         }
 
         list = ListView(this)
@@ -82,29 +74,17 @@ class MainActivity : Activity() {
         root.addView(status)
         root.addView(fromBox)
         root.addView(toBox)
+        root.addView(findBtn)
         root.addView(swap)
-        root.addView(busesBtn)
         root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
-        val watcher = object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) { refresh() }
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-        }
-        fromBox.addTextChangedListener(watcher)
-        toBox.addTextChangedListener(watcher)
-
         list.setOnItemClickListener { _, _, pos, _ ->
-            if (searching) {
-                if (pos < hits.size) showHit(hits[pos])
-            } else {
-                if (pos < routes.size) showTrips(routes[pos])
-            }
+            if (pos < hits.size) showHit(hits[pos])
         }
 
         refreshNames()
-        refresh()
+        showPrompt()
     }
 
     override fun onStart() {
@@ -113,7 +93,6 @@ class MainActivity : Activity() {
         Sync.run(this) { msg ->
             status.text = msg
             refreshNames()
-            refresh()
         }
     }
 
@@ -129,35 +108,34 @@ class MainActivity : Activity() {
         return if (p.isNullOrBlank()) null else p
     }
 
-    private fun refresh() {
+    private fun showPrompt() {
+        hits = emptyList()
+        list.adapter = PhotoRowAdapter(this, listOf(Pair("Enter From / To and tap Find Bus", null)))
+    }
+
+    private fun search() {
         val f = fromBox.text.toString().trim()
         val t = toBox.text.toString().trim()
-        searching = f.isNotEmpty() || t.isNotEmpty()
+        if (f.isEmpty() && t.isEmpty()) {
+            showPrompt()
+            return
+        }
 
+        hits = findHits(f, t)
         val rows = ArrayList<Pair<String, String?>>()
         var nextPos = -1
-        if (searching) {
-            hits = findHits(f, t)
-            val cal = Calendar.getInstance()
-            val now = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-            for ((idx, h) in hits.withIndex()) {
-                val isTime = h.fromTime.firstOrNull()?.isDigit() == true
-                val next = nextPos < 0 && isTime && h.fromTime >= now
-                if (next) nextPos = idx
-                val head = "${h.fromTime}  ${h.fromName}  →  ${h.toTime}  ${h.toName}"
-                val sub = "${h.route.busNo} · ${h.route.type} · ${h.trip.days}"
-                rows.add(Pair((if (next) "NEXT ▸ " else "") + head + "\n" + sub, photoFor(h.route.busNo)))
-            }
-            if (hits.isEmpty()) rows.add(Pair("No buses found for today", null))
-        } else {
-            hits = emptyList()
-            routes = db.searchRoutes("")
-            for (r in routes) {
-                val mid = r.stops.split("|").filter { it.isNotBlank() }.drop(1).dropLast(1)
-                val via = if (mid.isEmpty()) "" else "\nvia " + mid.joinToString(", ")
-                rows.add(Pair("${r.busNo}   ${r.from} → ${r.to}  (${r.type})$via", photoFor(r.busNo)))
-            }
+        val cal = Calendar.getInstance()
+        val now = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+        for ((idx, h) in hits.withIndex()) {
+            val isTime = h.fromTime.firstOrNull()?.isDigit() == true
+            val next = nextPos < 0 && isTime && h.fromTime >= now
+            if (next) nextPos = idx
+            val head = "${h.fromTime}  ${h.fromName}  →  ${h.toTime}  ${h.toName}"
+            val sub = "${h.route.busNo} · ${h.route.type} · ${h.trip.days}"
+            rows.add(Pair((if (next) "NEXT ▸ " else "") + head + "\n" + sub, photoFor(h.route.busNo)))
         }
+        if (hits.isEmpty()) rows.add(Pair("No buses found for today", null))
+
         list.adapter = PhotoRowAdapter(this, rows)
         if (nextPos > 0) list.setSelection(nextPos)
     }
@@ -237,40 +215,6 @@ class MainActivity : Activity() {
             iv.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
         } catch (e: Exception) { }
         return iv
-    }
-
-    private fun showTrips(r: Route) {
-        val trips = db.tripsFor(r.id)
-        val title = "${r.busNo}  ${r.from} → ${r.to}"
-        val d = AlertDialog.Builder(this).setTitle(title)
-        photoFor(r.busNo)?.let { d.setView(photoView(it)) }
-        if (trips.isEmpty()) {
-            d.setMessage("No timings yet").setPositiveButton("OK", null).show()
-            return
-        }
-        val labels = trips.map { tripLabel(it) }.toTypedArray()
-        d.setItems(labels) { _, i -> showStops(trips[i]) }
-            .setPositiveButton("Close", null)
-            .show()
-    }
-
-    private fun tripLabel(t: Trip): String {
-        val s = parseStops(t.stops)
-        if (s.size >= 2) {
-            val a = s.first()
-            val b = s.last()
-            return "${a.first} ${a.second} → ${b.first} ${b.second}   (${t.days})"
-        }
-        val times = if (t.arr.isBlank()) t.dep else "${t.dep} → ${t.arr}"
-        return "$times   (${t.days})"
-    }
-
-    private fun showStops(t: Trip) {
-        AlertDialog.Builder(this)
-            .setTitle(tripLabel(t))
-            .setMessage(if (t.stops.isBlank()) "No stop times added" else t.stops)
-            .setPositiveButton("OK", null)
-            .show()
     }
 }
 
