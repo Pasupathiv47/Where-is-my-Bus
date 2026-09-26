@@ -15,6 +15,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".ResultsActivity" android:exported="false" />
+        <activity android:name=".StopsActivity" android:exported="false" />
     </application>
 
 </manifest>
