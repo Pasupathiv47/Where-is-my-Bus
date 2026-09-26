@@ -2,14 +2,15 @@ package com.pasupathi.bustracker
 
 import android.app.Activity
 import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.os.Bundle
 import android.util.Base64
-import android.widget.HorizontalScrollView
+import android.view.Gravity
+import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
-import android.view.View
-import android.view.Gravity
 
 class StopsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,10 +48,10 @@ class StopsActivity : Activity() {
             if (i < 0) Pair("--:--", l.trim()) else Pair(l.substring(0, i), l.substring(i + 3).trim())
         }
 
-        val scroll = HorizontalScrollView(this)
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(24, 48, 24, 48)
+        val scroll = ScrollView(this)
+        val list = LinearLayout(this)
+        list.orientation = LinearLayout.VERTICAL
+        list.setPadding(32, 24, 32, 48)
 
         for ((idx, s) in stops.withIndex()) {
             val (time, name) = s
@@ -58,26 +59,20 @@ class StopsActivity : Activity() {
             val isAlight = idx == h.toIdx
             val highlight = isBoard || isAlight
 
-            val col = LinearLayout(this)
-            col.orientation = LinearLayout.VERTICAL
-            col.gravity = Gravity.CENTER_HORIZONTAL
-            col.layoutParams = LinearLayout.LayoutParams(220, -2)
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            row.setPadding(0, 20, 0, 20)
 
-            val timeTv = TextView(this)
-            timeTv.text = time
-            timeTv.textSize = 14f
-            timeTv.gravity = Gravity.CENTER
-            timeTv.setTypeface(null, if (highlight) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            timeTv.setTextColor(if (highlight) 0xFF1A73E8.toInt() else 0xFF333333.toInt())
+            val railCol = LinearLayout(this)
+            railCol.orientation = LinearLayout.VERTICAL
+            railCol.gravity = Gravity.CENTER_HORIZONTAL
+            railCol.layoutParams = LinearLayout.LayoutParams(80, -2)
 
-            val lineRow = LinearLayout(this)
-            lineRow.orientation = LinearLayout.HORIZONTAL
-            lineRow.gravity = Gravity.CENTER_VERTICAL
-
-            val leftLine = View(this)
-            leftLine.setBackgroundColor(0xFFBBBBBB.toInt())
-            val rightLine = View(this)
-            rightLine.setBackgroundColor(0xFFBBBBBB.toInt())
+            val topLine = View(this)
+            topLine.setBackgroundColor(0xFFBBBBBB.toInt())
+            val bottomLine = View(this)
+            bottomLine.setBackgroundColor(0xFFBBBBBB.toInt())
 
             val dot = TextView(this)
             dot.text = when {
@@ -85,32 +80,41 @@ class StopsActivity : Activity() {
                 isAlight -> "■"
                 else -> "●"
             }
-            dot.textSize = if (highlight) 20f else 12f
+            dot.textSize = if (highlight) 18f else 11f
             dot.setTextColor(if (highlight) 0xFF1A73E8.toInt() else 0xFF999999.toInt())
-            dot.setPadding(8, 0, 8, 0)
+            dot.gravity = Gravity.CENTER
 
-            lineRow.addView(leftLine, LinearLayout.LayoutParams(0, 4, 1f))
-            lineRow.addView(dot)
-            lineRow.addView(rightLine, LinearLayout.LayoutParams(0, 4, 1f))
-            if (idx == 0) leftLine.visibility = View.INVISIBLE
-            if (idx == stops.size - 1) rightLine.visibility = View.INVISIBLE
+            if (idx > 0) railCol.addView(topLine, LinearLayout.LayoutParams(4, 30))
+            else railCol.addView(View(this), LinearLayout.LayoutParams(4, 30))
+            railCol.addView(dot)
+            if (idx < stops.size - 1) railCol.addView(bottomLine, LinearLayout.LayoutParams(4, 30))
+            else railCol.addView(View(this), LinearLayout.LayoutParams(4, 30))
+
+            val textCol = LinearLayout(this)
+            textCol.orientation = LinearLayout.VERTICAL
+            textCol.setPadding(24, 0, 0, 0)
 
             val nameTv = TextView(this)
             nameTv.text = name
-            nameTv.textSize = 13f
-            nameTv.gravity = Gravity.CENTER
-            nameTv.setTypeface(null, if (highlight) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            nameTv.setTextColor(if (highlight) 0xFF1A73E8.toInt() else 0xFF555555.toInt())
-            nameTv.setPadding(4, 8, 4, 0)
+            nameTv.textSize = 16f
+            nameTv.setTypeface(null, if (highlight) Typeface.BOLD else Typeface.NORMAL)
+            nameTv.setTextColor(if (highlight) 0xFF1A73E8.toInt() else 0xFF222222.toInt())
 
-            col.addView(timeTv)
-            col.addView(lineRow)
-            col.addView(nameTv)
-            row.addView(col)
+            val timeTv = TextView(this)
+            timeTv.text = time
+            timeTv.textSize = 14f
+            timeTv.setTextColor(0xFF777777.toInt())
+
+            textCol.addView(nameTv)
+            textCol.addView(timeTv)
+
+            row.addView(railCol)
+            row.addView(textCol)
+            list.addView(row)
         }
 
-        scroll.addView(row)
-        root.addView(scroll)
+        scroll.addView(list)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
     }
 }
