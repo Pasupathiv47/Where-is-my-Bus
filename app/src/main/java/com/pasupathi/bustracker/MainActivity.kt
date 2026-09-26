@@ -24,6 +24,7 @@ object SearchState {
     var hits: List<Hit> = emptyList()
     var fromQ: String = ""
     var toQ: String = ""
+    var selected: Hit? = null
 }
 
 class MainActivity : Activity() {
