@@ -20,6 +20,7 @@
   .addrow button{width:auto;white-space:nowrap}
   .mini{background:#c62828;padding:4px 10px;font-size:13px}
   .upd{background:#555;padding:4px 8px;font-size:13px;margin-left:4px}
+  a.linkbtn{display:block;text-align:center;background:#1a73e8;color:#fff;text-decoration:none;padding:10px;border-radius:6px}
 </style>
 </head>
 <body>
@@ -35,12 +36,7 @@
   <div class="row"><h2>Bus Dashboard</h2><button id="out">Logout</button></div>
 
   <div class="card">
-    <h3>Places (Bus Stops)</h3>
-    <div class="addrow">
-      <input id="pn" list="stopsDL" placeholder="Search or type a new place name">
-      <button id="saveP">Add</button>
-    </div>
-    <div id="pl"></div>
+    <a class="linkbtn" href="places.html">📍 Manage Places (Bus Stops)</a>
   </div>
 
   <datalist id="stopsDL"></datalist>
@@ -150,7 +146,7 @@ function start() {
   started = true;
   onSnapshot(collection(db, 'places'), s => {
     places = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => !p.deleted);
-    drawPlaces();
+    drawPlaceOptions();
   });
   onSnapshot(collection(db, 'routes'), s => {
     routes = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !r.deleted);
@@ -167,31 +163,10 @@ function start() {
   });
 }
 
-function drawPlaces() {
+function drawPlaceOptions() {
   places.sort((a, b) => a.name.localeCompare(b.name));
   $('stopsDL').innerHTML = places.map(p => `<option value="${esc(p.name)}">`).join('');
-  $('pl').innerHTML = places.map(p =>
-    `<div class="row"><span>${esc(p.name)}</span><button class="mini" data-d="${p.id}">Del</button></div>`
-  ).join('') || 'No places yet';
 }
-
-$('saveP').onclick = async () => {
-  const name = $('pn').value.trim();
-  if (!name) return alert('Enter a place name');
-  if (places.some(p => p.name.toLowerCase() === name.toLowerCase())) {
-    $('pn').value = '';
-    return alert('That place already exists');
-  }
-  await setDoc(doc(collection(db, 'places')), { name, deleted: false, updatedAt: Date.now() });
-  $('pn').value = '';
-};
-
-$('pl').onclick = async e => {
-  const id = e.target.dataset.d;
-  if (id && confirm('Delete this place?')) {
-    await setDoc(doc(db, 'places', id), { deleted: true, updatedAt: Date.now() }, { merge: true });
-  }
-};
 
 function drawViList() {
   $('viList').innerHTML = viStops.map((n, i) =>
