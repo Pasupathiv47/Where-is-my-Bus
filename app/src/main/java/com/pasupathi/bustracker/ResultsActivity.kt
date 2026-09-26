@@ -1,7 +1,7 @@
 package com.pasupathi.bustracker
 
 import android.app.Activity
-import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Base64
@@ -38,7 +38,10 @@ class ResultsActivity : Activity() {
 
         val list = ListView(this)
         list.adapter = ResultAdapter(this, hits, busPhotos)
-        list.setOnItemClickListener { _, _, pos, _ -> showHit(hits[pos]) }
+        list.setOnItemClickListener { _, _, pos, _ ->
+            SearchState.selected = hits[pos]
+            startActivity(Intent(this, StopsActivity::class.java))
+        }
 
         root.addView(header)
         if (hits.isEmpty()) {
@@ -51,40 +54,6 @@ class ResultsActivity : Activity() {
             root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
         }
         setContentView(root)
-    }
-
-    private fun photoFor(busNo: String): String? {
-        val p = busPhotos[busNo]
-        return if (p.isNullOrBlank()) null else p
-    }
-
-    private fun showHit(h: Hit) {
-        val lines = h.trip.stops.lines().filter { it.isNotBlank() }
-        val body = lines.mapIndexed { i, l ->
-            when (i) {
-                h.fromIdx -> "▶ $l"
-                h.toIdx -> "■ $l"
-                else -> "   $l"
-            }
-        }.joinToString("\n")
-        val d = AlertDialog.Builder(this)
-            .setTitle("${h.route.busNo}  ${h.route.from} → ${h.route.to}")
-            .setMessage(body)
-            .setPositiveButton("OK", null)
-        photoFor(h.route.busNo)?.let { d.setView(photoView(it)) }
-        d.show()
-    }
-
-    private fun photoView(dataUrl: String): ImageView {
-        val iv = ImageView(this)
-        iv.adjustViewBounds = true
-        iv.setPadding(32, 16, 32, 0)
-        try {
-            val b64 = dataUrl.substringAfter(",", "")
-            val bytes = Base64.decode(b64, Base64.DEFAULT)
-            iv.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
-        } catch (e: Exception) { }
-        return iv
     }
 }
 
@@ -147,6 +116,8 @@ class ResultAdapter(
         card.addView(stopsRow)
 
         val photo = photos[h.route.busNo]
+        val outer = LinearLayout(ctx)
+        outer.orientation = LinearLayout.VERTICAL
         if (!photo.isNullOrBlank()) {
             val row = LinearLayout(ctx)
             row.orientation = LinearLayout.HORIZONTAL
@@ -158,18 +129,10 @@ class ResultAdapter(
             } catch (e: Exception) { }
             row.addView(img)
             row.addView(card)
-            val outer = LinearLayout(ctx)
-            outer.orientation = LinearLayout.VERTICAL
             outer.addView(row)
-            val divider = View(ctx)
-            divider.setBackgroundColor(0xFFDDDDDD.toInt())
-            outer.addView(divider, LinearLayout.LayoutParams(-1, 2))
-            return outer
+        } else {
+            outer.addView(card)
         }
-
-        val outer = LinearLayout(ctx)
-        outer.orientation = LinearLayout.VERTICAL
-        outer.addView(card)
         val divider = View(ctx)
         divider.setBackgroundColor(0xFFDDDDDD.toInt())
         outer.addView(divider, LinearLayout.LayoutParams(-1, 2))
