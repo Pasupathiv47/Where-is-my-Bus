@@ -14,6 +14,12 @@
   .row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;gap:8px}
   .sl{display:block;margin-top:8px;font-weight:bold;font-size:14px}
   small{color:#555}
+  .via-row{display:flex;align-items:center;justify-content:space-between;background:#f0f4fb;border-radius:6px;padding:6px 10px;margin:4px 0}
+  .addrow{display:flex;gap:8px}
+  .addrow input{flex:1}
+  .addrow button{width:auto;white-space:nowrap}
+  .mini{background:#c62828;padding:4px 10px;font-size:13px}
+  .upd{background:#555;padding:4px 8px;font-size:13px;margin-left:4px}
 </style>
 </head>
 <body>
@@ -27,6 +33,17 @@
 
 <div id="app" hidden>
   <div class="row"><h2>Bus Dashboard</h2><button id="out">Logout</button></div>
+
+  <div class="card">
+    <h3>Places (Bus Stops)</h3>
+    <div class="addrow">
+      <input id="pn" list="stopsDL" placeholder="Search or type a new place name">
+      <button id="saveP">Add</button>
+    </div>
+    <div id="pl"></div>
+  </div>
+
+  <datalist id="stopsDL"></datalist>
 
   <div class="card">
     <h3>Buses (profile)</h3>
@@ -44,9 +61,20 @@
     <label class="sl">Pick a bus profile (optional, fills the fields below)</label>
     <select id="pb"><option value="">-- Choose a bus profile --</option></select>
     <input id="bn" placeholder="Bus number (e.g. 27A)">
-    <input id="fr" placeholder="From (start place)">
-    <textarea id="vi" placeholder="Stops in between, one per line, in order"></textarea>
-    <input id="rt" placeholder="To (final place)">
+
+    <label class="sl">From (start place)</label>
+    <input id="fr" list="stopsDL" placeholder="Search a place">
+
+    <label class="sl">Stops in between, in order</label>
+    <div class="addrow">
+      <input id="viIn" list="stopsDL" placeholder="Search a place">
+      <button id="viAdd">Add stop</button>
+    </div>
+    <div id="viList"></div>
+
+    <label class="sl">To (final place)</label>
+    <input id="rt" list="stopsDL" placeholder="Search a place">
+
     <select id="ty"><option>TNSTC</option><option>Private</option></select>
     <button id="saveR">Add route</button>
     <div id="rl"></div>
@@ -100,7 +128,8 @@ window.addEventListener('unhandledrejection', e => alert(e.reason && e.reason.me
 const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const toStr = m => String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 
-let routes = [], timings = [], buses = [], editId = null, editBusId = null, started = false, stopKey = '', photoData = '';
+let routes = [], timings = [], buses = [], places = [], viStops = [];
+let editId = null, editBusId = null, started = false, stopKey = '', photoData = '';
 const stopsOf = r => !r ? [] : (r.stops && r.stops.length ? r.stops : [r.from, r.to]);
 const curRoute = () => routes.find(x => x.id === $('tr').value);
 const dirNames = () => {
@@ -119,6 +148,10 @@ $('out').onclick = () => signOut(auth);
 function start() {
   if (started) return;
   started = true;
+  onSnapshot(collection(db, 'places'), s => {
+    places = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => !p.deleted);
+    drawPlaces();
+  });
   onSnapshot(collection(db, 'routes'), s => {
     routes = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !r.deleted);
     drawRoutes();
@@ -133,6 +166,61 @@ function start() {
     drawPicker();
   });
 }
+
+function drawPlaces() {
+  places.sort((a, b) => a.name.localeCompare(b.name));
+  $('stopsDL').innerHTML = places.map(p => `<option value="${esc(p.name)}">`).join('');
+  $('pl').innerHTML = places.map(p =>
+    `<div class="row"><span>${esc(p.name)}</span><button class="mini" data-d="${p.id}">Del</button></div>`
+  ).join('') || 'No places yet';
+}
+
+$('saveP').onclick = async () => {
+  const name = $('pn').value.trim();
+  if (!name) return alert('Enter a place name');
+  if (places.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+    $('pn').value = '';
+    return alert('That place already exists');
+  }
+  await setDoc(doc(collection(db, 'places')), { name, deleted: false, updatedAt: Date.now() });
+  $('pn').value = '';
+};
+
+$('pl').onclick = async e => {
+  const id = e.target.dataset.d;
+  if (id && confirm('Delete this place?')) {
+    await setDoc(doc(db, 'places', id), { deleted: true, updatedAt: Date.now() }, { merge: true });
+  }
+};
+
+function drawViList() {
+  $('viList').innerHTML = viStops.map((n, i) =>
+    `<div class="via-row"><span>${i + 1}. ${esc(n)}</span>
+     <span><button class="upd" data-up="${i}">↑</button><button class="upd" data-dn="${i}">↓</button><button class="mini" data-rm="${i}">✕</button></span></div>`
+  ).join('') || '<small>No in-between stops added</small>';
+}
+
+$('viAdd').onclick = () => {
+  const v = $('viIn').value.trim();
+  if (!v) return;
+  viStops.push(v);
+  $('viIn').value = '';
+  drawViList();
+};
+
+$('viList').onclick = e => {
+  const b = e.target;
+  if (b.dataset.rm !== undefined) viStops.splice(+b.dataset.rm, 1);
+  if (b.dataset.up !== undefined) {
+    const i = +b.dataset.up;
+    if (i > 0) [viStops[i - 1], viStops[i]] = [viStops[i], viStops[i - 1]];
+  }
+  if (b.dataset.dn !== undefined) {
+    const i = +b.dataset.dn;
+    if (i < viStops.length - 1) [viStops[i + 1], viStops[i]] = [viStops[i], viStops[i + 1]];
+  }
+  drawViList();
+};
 
 function drawPicker() {
   buses.sort((a, b) => a.busNo.localeCompare(b.busNo));
@@ -155,7 +243,7 @@ function drawRoutes() {
     const mid = stopsOf(r).slice(1, -1);
     const via = mid.length ? `<br><small>via ${esc(mid.join(', '))}</small>` : '';
     return `<div class="row"><span><b>${esc(r.busNo)}</b> ${esc(r.from)} → ${esc(r.to)} (${esc(r.type)})${via}</span>
-     <span><button data-e="${r.id}">Edit</button> <button data-d="${r.id}">Del</button></span></div>`;
+     <span><button data-e="${r.id}">Edit</button> <button class="mini" data-d="${r.id}">Del</button></span></div>`;
   }).join('') || 'No routes yet';
   const cur = $('tr').value;
   $('tr').innerHTML = routes.map(r =>
@@ -190,13 +278,13 @@ function drawStopInputs() {
 
 $('saveR').onclick = async () => {
   const busNo = $('bn').value.trim(), from = $('fr').value.trim(), to = $('rt').value.trim(), type = $('ty').value;
-  const via = $('vi').value.split('\n').map(s => s.trim()).filter(Boolean);
   if (!busNo || !from || !to) return alert('Fill bus number, from and to');
-  const stops = [from, ...via, to];
+  const stops = [from, ...viStops, to];
   const ref = editId ? doc(db, 'routes', editId) : doc(collection(db, 'routes'));
   await setDoc(ref, { busNo, from, to, type, stops, deleted: false, updatedAt: Date.now() }, { merge: true });
   editId = null;
-  $('bn').value = ''; $('fr').value = ''; $('rt').value = ''; $('vi').value = ''; $('pb').value = '';
+  $('bn').value = ''; $('fr').value = ''; $('rt').value = ''; $('pb').value = '';
+  viStops = []; drawViList();
   $('saveR').textContent = 'Add route';
 };
 
@@ -206,7 +294,8 @@ $('rl').onclick = async e => {
     const r = routes.find(x => x.id === b.dataset.e);
     editId = r.id;
     $('bn').value = r.busNo; $('fr').value = r.from; $('rt').value = r.to; $('ty').value = r.type;
-    $('vi').value = stopsOf(r).slice(1, -1).join('\n');
+    viStops = stopsOf(r).slice(1, -1);
+    drawViList();
     $('saveR').textContent = 'Update route';
     window.scrollTo(0, 0);
   }
@@ -243,7 +332,7 @@ function drawBuses() {
   $('bl').innerHTML = buses.map(b =>
     `<div class="row">${b.photo ? `<img src="${b.photo}" style="width:56px;height:56px;object-fit:cover;border-radius:8px">` : ''}
      <span style="flex:1">&nbsp;<b>${esc(b.busNo)}</b><br><small>${esc(b.regNo)} · ${esc(b.type || 'TNSTC')}</small></span>
-     <span><button data-e="${b.id}">Edit</button> <button data-d="${b.id}">Del</button></span></div>`
+     <span><button data-e="${b.id}">Edit</button> <button class="mini" data-d="${b.id}">Del</button></span></div>`
   ).join('') || 'No buses yet';
 }
 
@@ -284,7 +373,7 @@ function drawTimes() {
     .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   $('tl').innerHTML = mine.map(t => {
     const st = (t.stops || []).map(s => `${esc(s.t || '–')} ${esc(s.n)}`).join(' · ');
-    return `<div class="row"><span><b>${esc(tripName(t))}</b> (${esc(t.days)})<br><small>${st}</small></span><button data-d="${t.id}">Del</button></div>`;
+    return `<div class="row"><span><b>${esc(tripName(t))}</b> (${esc(t.days)})<br><small>${st}</small></span><button class="mini" data-d="${t.id}">Del</button></div>`;
   }).join('') || 'No trips yet';
   const curG = $('gs').value;
   $('gs').innerHTML = mine.filter(t => t.stops && t.stops.length > 1)
@@ -353,6 +442,8 @@ $('delAll').onclick = async () => {
     setDoc(doc(db, 'timings', t.id), { deleted: true, updatedAt: base + i }, { merge: true })
   ));
 };
+
+drawViList();
 </script>
 </body>
 </html>
