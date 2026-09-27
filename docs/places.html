@@ -11,9 +11,8 @@
   button{background:#1a73e8;color:#fff;border:0;border-radius:6px;width:auto;padding:8px 14px}
   .card{background:#fff;border-radius:8px;padding:12px;margin-bottom:16px}
   .row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;gap:8px}
-  .addrow{display:flex;gap:8px}
-  .addrow>*{flex:1}
-  .addrow button{width:auto;white-space:nowrap;flex:0 0 auto}
+  .grid2{display:flex;gap:8px}
+  .grid2>*{flex:1}
   .mini{background:#c62828;padding:4px 10px;font-size:13px}
   small{color:#555}
   a.back{display:inline-block;margin-bottom:12px;color:#1a73e8;text-decoration:none;font-weight:bold}
@@ -32,8 +31,13 @@
   <a class="back" href="index.html">← Back to Dashboard</a>
   <div class="card">
     <h3>Places (Bus Stops)</h3>
-    <div class="addrow">
-      <input id="pn" placeholder="Place name">
+    <input id="pn" placeholder="Place name">
+    <div class="grid2">
+      <input id="pt" placeholder="Taluk">
+      <input id="pd" placeholder="District">
+    </div>
+    <div class="grid2">
+      <input id="ps" placeholder="State">
       <input id="pc" placeholder="Pincode" inputmode="numeric" maxlength="6">
     </div>
     <button id="saveP">Add place</button>
@@ -82,23 +86,27 @@ function start() {
 
 function drawPlaces() {
   places.sort((a, b) => a.name.localeCompare(b.name));
-  $('pl').innerHTML = places.map(p =>
-    `<div class="row"><span><b>${esc(p.name)}</b>${p.pincode ? ` <small>· ${esc(p.pincode)}</small>` : ''}</span>
-     <span><button data-e="${p.id}">Edit</button> <button class="mini" data-d="${p.id}">Del</button></span></div>`
-  ).join('') || 'No places yet';
+  $('pl').innerHTML = places.map(p => {
+    const bits = [p.taluk, p.district, p.state, p.pincode].filter(Boolean).join(' · ');
+    return `<div class="row"><span><b>${esc(p.name)}</b>${bits ? `<br><small>${esc(bits)}</small>` : ''}</span>
+     <span><button data-e="${p.id}">Edit</button> <button class="mini" data-d="${p.id}">Del</button></span></div>`;
+  }).join('') || 'No places yet';
 }
 
 $('saveP').onclick = async () => {
   const name = $('pn').value.trim();
+  const taluk = $('pt').value.trim();
+  const district = $('pd').value.trim();
+  const state = $('ps').value.trim();
   const pincode = $('pc').value.trim();
   if (!name) return alert('Enter a place name');
   if (!editId && places.some(p => p.name.toLowerCase() === name.toLowerCase())) {
     return alert('That place already exists');
   }
   const ref = editId ? doc(db, 'places', editId) : doc(collection(db, 'places'));
-  await setDoc(ref, { name, pincode, deleted: false, updatedAt: Date.now() }, { merge: true });
+  await setDoc(ref, { name, taluk, district, state, pincode, deleted: false, updatedAt: Date.now() }, { merge: true });
   editId = null;
-  $('pn').value = ''; $('pc').value = '';
+  $('pn').value = ''; $('pt').value = ''; $('pd').value = ''; $('ps').value = ''; $('pc').value = '';
   $('saveP').textContent = 'Add place';
 };
 
@@ -107,7 +115,8 @@ $('pl').onclick = async e => {
   if (b.dataset.e) {
     const p = places.find(x => x.id === b.dataset.e);
     editId = p.id;
-    $('pn').value = p.name; $('pc').value = p.pincode || '';
+    $('pn').value = p.name; $('pt').value = p.taluk || ''; $('pd').value = p.district || '';
+    $('ps').value = p.state || ''; $('pc').value = p.pincode || '';
     $('saveP').textContent = 'Update place';
     window.scrollTo(0, 0);
   }
