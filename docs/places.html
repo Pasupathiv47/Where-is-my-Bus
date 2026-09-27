@@ -6,16 +6,24 @@
 <title>Places - Bus Dashboard</title>
 <style>
   body{font-family:sans-serif;margin:0;padding:16px;background:#f4f4f4}
-  h2,h3{margin:8px 0}
-  input,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
+  h2,h3,h4{margin:8px 0}
+  input,select,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
   button{background:#1a73e8;color:#fff;border:0;border-radius:6px;width:auto;padding:8px 14px}
   .card{background:#fff;border-radius:8px;padding:12px;margin-bottom:16px}
   .row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;gap:8px}
   .grid2{display:flex;gap:8px}
   .grid2>*{flex:1}
   .mini{background:#c62828;padding:4px 10px;font-size:13px}
+  .addrow{display:flex;gap:8px}
+  .addrow input{flex:1}
+  .addrow button{width:auto;white-space:nowrap;flex:0 0 auto}
   small{color:#555}
   a.back{display:inline-block;margin-bottom:12px;color:#1a73e8;text-decoration:none;font-weight:bold}
+  details{margin-bottom:8px}
+  summary{font-weight:bold;padding:8px 0;cursor:pointer}
+  .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .tag{background:#f0f4fb;border-radius:14px;padding:4px 10px;font-size:13px;display:flex;align-items:center;gap:6px}
+  .tag button{background:none;color:#c62828;border:0;padding:0;width:auto;font-size:14px;margin:0}
 </style>
 </head>
 <body>
@@ -29,18 +37,57 @@
 
 <div id="app" hidden>
   <a class="back" href="index.html">← Back to Dashboard</a>
+
   <div class="card">
-    <h3>Places (Bus Stops)</h3>
+    <h3>Manage lists</h3>
+    <small>Add each value once here, then pick it from a dropdown below instead of typing it every time.</small>
+
+    <details>
+      <summary>States</summary>
+      <div class="addrow"><input id="stIn" placeholder="State name"><button id="stSave">Add</button></div>
+      <div id="stList" class="taglist"></div>
+    </details>
+    <details>
+      <summary>Districts</summary>
+      <div class="addrow"><input id="dtIn" placeholder="District name"><button id="dtSave">Add</button></div>
+      <div id="dtList" class="taglist"></div>
+    </details>
+    <details>
+      <summary>Taluks</summary>
+      <div class="addrow"><input id="tkIn" placeholder="Taluk name"><button id="tkSave">Add</button></div>
+      <div id="tkList" class="taglist"></div>
+    </details>
+    <details>
+      <summary>Pincodes</summary>
+      <div class="addrow"><input id="pcIn" placeholder="Pincode" inputmode="numeric" maxlength="6"><button id="pcSave">Add</button></div>
+      <div id="pcList" class="taglist"></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h3>Add / Edit place</h3>
     <input id="pn" placeholder="Place name">
     <div class="grid2">
-      <input id="pt" placeholder="Taluk">
-      <input id="pd" placeholder="District">
+      <select id="pTaluk"><option value="">-- Taluk --</option></select>
+      <select id="pDistrict"><option value="">-- District --</option></select>
     </div>
     <div class="grid2">
-      <input id="ps" placeholder="State">
-      <input id="pc" placeholder="Pincode" inputmode="numeric" maxlength="6">
+      <select id="pState"><option value="">-- State --</option></select>
+      <select id="pPincode"><option value="">-- Pincode --</option></select>
     </div>
     <button id="saveP">Add place</button>
+  </div>
+
+  <div class="card">
+    <h3>View places</h3>
+    <select id="vMode">
+      <option value="all">View all</option>
+      <option value="taluk">View by Taluk</option>
+      <option value="district">View by District</option>
+      <option value="state">View by State</option>
+      <option value="pincode">View by Pincode</option>
+    </select>
+    <select id="vValue" hidden></select>
     <div id="pl"></div>
   </div>
 </div>
@@ -66,7 +113,8 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 window.addEventListener('unhandledrejection', e => alert(e.reason && e.reason.message ? e.reason.message : e.reason));
 
-let places = [], editId = null, started = false;
+let places = [], states = [], districts = [], taluks = [], pincodes = [];
+let editId = null, started = false;
 
 onAuthStateChanged(auth, u => {
   $('login').hidden = !!u;
@@ -82,23 +130,64 @@ function start() {
     places = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => !p.deleted);
     drawPlaces();
   });
+  mkList('states', 'stList', 'pState', v => states = v);
+  mkList('districts', 'dtList', 'pDistrict', v => districts = v);
+  mkList('taluks', 'tkList', 'pTaluk', v => taluks = v);
+  mkList('pincodes', 'pcList', 'pPincode', v => pincodes = v);
 }
 
-function drawPlaces() {
-  places.sort((a, b) => a.name.localeCompare(b.name));
-  $('pl').innerHTML = places.map(p => {
-    const bits = [p.taluk, p.district, p.state, p.pincode].filter(Boolean).join(' · ');
-    return `<div class="row"><span><b>${esc(p.name)}</b>${bits ? `<br><small>${esc(bits)}</small>` : ''}</span>
-     <span><button data-e="${p.id}">Edit</button> <button class="mini" data-d="${p.id}">Del</button></span></div>`;
-  }).join('') || 'No places yet';
+// Generic manager for a simple {name, deleted, updatedAt} collection.
+// Wires its tag-list display and keeps a <select> in sync.
+function mkList(coll, tagListId, selectId, setter) {
+  onSnapshot(collection(db, coll), s => {
+    const items = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.deleted);
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    setter(items);
+    $(tagListId).innerHTML = items.map(x =>
+      `<span class="tag">${esc(x.name)}<button data-coll="${coll}" data-id="${x.id}">✕</button></span>`
+    ).join('') || '<small>None yet</small>';
+    const sel = $(selectId);
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">-- ${sel.options[0] ? sel.options[0].textContent.replace('-- ', '').replace(' --', '') : ''} --</option>` +
+      items.map(x => `<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
+    if (cur) sel.value = cur;
+    drawFilterValueOptions();
+  });
 }
 
+document.body.addEventListener('click', async e => {
+  const b = e.target;
+  if (b.dataset.coll && b.dataset.id) {
+    if (confirm('Delete this value?')) {
+      await setDoc(doc(db, b.dataset.coll, b.dataset.id), { deleted: true, updatedAt: Date.now() }, { merge: true });
+    }
+  }
+});
+
+function addSimple(coll, inputId, existingList) {
+  return async () => {
+    const name = $(inputId).value.trim();
+    if (!name) return alert('Enter a value');
+    if (existingList.some(x => x.name.toLowerCase() === name.toLowerCase())) {
+      $(inputId).value = '';
+      return alert('That value already exists');
+    }
+    await setDoc(doc(collection(db, coll)), { name, deleted: false, updatedAt: Date.now() });
+    $(inputId).value = '';
+  };
+}
+$('stSave').onclick = () => addSimple('states', 'stIn', states)();
+$('dtSave').onclick = () => addSimple('districts', 'dtIn', districts)();
+$('tkSave').onclick = () => addSimple('taluks', 'tkIn', taluks)();
+$('pcSave').onclick = () => addSimple('pincodes', 'pcIn', pincodes)();
+
+// --- Place add/edit ---
 $('saveP').onclick = async () => {
   const name = $('pn').value.trim();
-  const taluk = $('pt').value.trim();
-  const district = $('pd').value.trim();
-  const state = $('ps').value.trim();
-  const pincode = $('pc').value.trim();
+  const taluk = $('pTaluk').value;
+  const district = $('pDistrict').value;
+  const state = $('pState').value;
+  const pincode = $('pPincode').value;
   if (!name) return alert('Enter a place name');
   if (!editId && places.some(p => p.name.toLowerCase() === name.toLowerCase())) {
     return alert('That place already exists');
@@ -106,24 +195,58 @@ $('saveP').onclick = async () => {
   const ref = editId ? doc(db, 'places', editId) : doc(collection(db, 'places'));
   await setDoc(ref, { name, taluk, district, state, pincode, deleted: false, updatedAt: Date.now() }, { merge: true });
   editId = null;
-  $('pn').value = ''; $('pt').value = ''; $('pd').value = ''; $('ps').value = ''; $('pc').value = '';
+  $('pn').value = ''; $('pTaluk').value = ''; $('pDistrict').value = ''; $('pState').value = ''; $('pPincode').value = '';
   $('saveP').textContent = 'Add place';
 };
 
-$('pl').onclick = async e => {
+// --- View filter ---
+function fieldFor(mode) { return mode === 'all' ? null : mode; }
+
+function drawFilterValueOptions() {
+  const mode = $('vMode').value;
+  const field = fieldFor(mode);
+  if (!field) { $('vValue').hidden = true; drawPlaces(); return; }
+  const set = new Set(places.map(p => p[field]).filter(Boolean));
+  const vals = [...set].sort();
+  const cur = $('vValue').value;
+  $('vValue').innerHTML = '<option value="">-- Select --</option>' + vals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  $('vValue').hidden = false;
+  if (cur && vals.includes(cur)) $('vValue').value = cur;
+  drawPlaces();
+}
+$('vMode').onchange = drawFilterValueOptions;
+$('vValue').onchange = drawPlaces;
+
+function drawPlaces() {
+  let list = places.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const mode = $('vMode').value;
+  const field = fieldFor(mode);
+  if (field) {
+    const val = $('vValue').value;
+    list = val ? list.filter(p => p[field] === val) : [];
+  }
+  $('pl').innerHTML = list.map(p => {
+    const bits = [p.taluk, p.district, p.state, p.pincode].filter(Boolean).join(' · ');
+    return `<div class="row"><span><b>${esc(p.name)}</b>${bits ? `<br><small>${esc(bits)}</small>` : ''}</span>
+     <span><button data-e="${p.id}">Edit</button> <button class="mini" data-d="${p.id}">Del</button></span></div>`;
+  }).join('') || (field ? 'Choose a value above, or no places match' : 'No places yet');
+}
+
+$('pl').addEventListener('click', async e => {
   const b = e.target;
   if (b.dataset.e) {
     const p = places.find(x => x.id === b.dataset.e);
     editId = p.id;
-    $('pn').value = p.name; $('pt').value = p.taluk || ''; $('pd').value = p.district || '';
-    $('ps').value = p.state || ''; $('pc').value = p.pincode || '';
+    $('pn').value = p.name;
+    $('pTaluk').value = p.taluk || ''; $('pDistrict').value = p.district || '';
+    $('pState').value = p.state || ''; $('pPincode').value = p.pincode || '';
     $('saveP').textContent = 'Update place';
     window.scrollTo(0, 0);
   }
   if (b.dataset.d && confirm('Delete this place?')) {
     await setDoc(doc(db, 'places', b.dataset.d), { deleted: true, updatedAt: Date.now() }, { merge: true });
   }
-};
+});
 </script>
 </body>
 </html>
