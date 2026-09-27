@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Places - Bus Dashboard</title>
+<style>
+  body{font-family:sans-serif;margin:0;padding:16px;background:#f4f4f4}
+  h2,h3{margin:8px 0}
+  input,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
+  button{background:#1a73e8;color:#fff;border:0;border-radius:6px;width:auto;padding:8px 14px}
+  .card{background:#fff;border-radius:8px;padding:12px;margin-bottom:16px}
+  .row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;gap:8px}
+  .addrow{display:flex;gap:8px}
+  .addrow>*{flex:1}
+  .addrow button{width:auto;white-space:nowrap;flex:0 0 auto}
+  .mini{background:#c62828;padding:4px 10px;font-size:13px}
+  small{color:#555}
+  a.back{display:inline-block;margin-bottom:12px;color:#1a73e8;text-decoration:none;font-weight:bold}
+</style>
+</head>
+<body>
+
+<div id="login" class="card">
+  <h2>Bus Dashboard Login</h2>
+  <input id="em" type="email" placeholder="Email">
+  <input id="pw" type="password" placeholder="Password">
+  <button id="go">Login</button>
+</div>
+
+<div id="app" hidden>
+  <a class="back" href="index.html">← Back to Dashboard</a>
+  <div class="card">
+    <h3>Places (Bus Stops)</h3>
+    <div class="addrow">
+      <input id="pn" placeholder="Place name">
+      <input id="pc" placeholder="Pincode" inputmode="numeric" maxlength="6">
+    </div>
+    <button id="saveP">Add place</button>
+    <div id="pl"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCrwRy4WCPb8GKFVjZHn36P1uZpcPj4Se0",
+  authDomain: "bus-tracker-7c4d8.firebaseapp.com",
+  projectId: "bus-tracker-7c4d8",
+  storageBucket: "bus-tracker-7c4d8.firebasestorage.app",
+  messagingSenderId: "245492004212",
+  appId: "1:245492004212:web:7ea379f915eac8f8372821"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+window.addEventListener('unhandledrejection', e => alert(e.reason && e.reason.message ? e.reason.message : e.reason));
+
+let places = [], editId = null, started = false;
+
+onAuthStateChanged(auth, u => {
+  $('login').hidden = !!u;
+  $('app').hidden = !u;
+  if (u) start();
+});
+$('go').onclick = () => signInWithEmailAndPassword(auth, $('em').value, $('pw').value).catch(e => alert(e.message));
+
+function start() {
+  if (started) return;
+  started = true;
+  onSnapshot(collection(db, 'places'), s => {
+    places = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => !p.deleted);
+    drawPlaces();
+  });
+}
+
+function drawPlaces() {
+  places.sort((a, b) => a.name.localeCompare(b.name));
+  $('pl').innerHTML = places.map(p =>
+    `<div class="row"><span><b>${esc(p.name)}</b>${p.pincode ? ` <small>· ${esc(p.pincode)}</small>` : ''}</span>
+     <span><button data-e="${p.id}">Edit</button> <button class="mini" data-d="${p.id}">Del</button></span></div>`
+  ).join('') || 'No places yet';
+}
+
+$('saveP').onclick = async () => {
+  const name = $('pn').value.trim();
+  const pincode = $('pc').value.trim();
+  if (!name) return alert('Enter a place name');
+  if (!editId && places.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+    return alert('That place already exists');
+  }
+  const ref = editId ? doc(db, 'places', editId) : doc(collection(db, 'places'));
+  await setDoc(ref, { name, pincode, deleted: false, updatedAt: Date.now() }, { merge: true });
+  editId = null;
+  $('pn').value = ''; $('pc').value = '';
+  $('saveP').textContent = 'Add place';
+};
+
+$('pl').onclick = async e => {
+  const b = e.target;
+  if (b.dataset.e) {
+    const p = places.find(x => x.id === b.dataset.e);
+    editId = p.id;
+    $('pn').value = p.name; $('pc').value = p.pincode || '';
+    $('saveP').textContent = 'Update place';
+    window.scrollTo(0, 0);
+  }
+  if (b.dataset.d && confirm('Delete this place?')) {
+    await setDoc(doc(db, 'places', b.dataset.d), { deleted: true, updatedAt: Date.now() }, { merge: true });
+  }
+};
+</script>
+</body>
+</html>
